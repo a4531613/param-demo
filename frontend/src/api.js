@@ -30,7 +30,11 @@ export const api = {
   deleteType: (id) => request(`/types/${id}`, { method: 'DELETE' }),
   // versions
   listVersions: (typeId) => request(`/types/${typeId}/versions`),
+  listVersionsAll: (params={}) => request(`/versions?${new URLSearchParams(params)}`),
+  createVersionGlobal: (payload) => request(`/types/${payload.typeId}/versions`, { method: 'POST', body: JSON.stringify(payload) }),
   createVersion: (typeId, payload) => request(`/types/${typeId}/versions`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateVersion: (id, payload) => request(`/versions/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteVersion: (id) => request(`/versions/${id}`, { method: 'DELETE' }),
   publishVersion: (id) => request(`/versions/${id}/publish`, { method: 'PATCH' }),
   diffVersions: (a, b) => request(`/versions/${a}/diff/${b}`),
   // fields

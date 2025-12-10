@@ -95,11 +95,20 @@ function initSchema() {
     version_no TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'DRAFT', -- DRAFT | PENDING_RELEASE | RELEASED | ARCHIVED
     description TEXT,
+    app_id INTEGER,
+    env_id INTEGER,
+    enabled INTEGER DEFAULT 1,
+    effective_from TEXT,
+    effective_to TEXT,
     create_user TEXT,
     create_time TEXT DEFAULT (datetime('now')),
     release_user TEXT,
     release_time TEXT,
+    update_user TEXT,
+    update_time TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE,
+    FOREIGN KEY (app_id) REFERENCES applications(id) ON DELETE SET NULL,
+    FOREIGN KEY (env_id) REFERENCES environments(id) ON DELETE SET NULL,
     UNIQUE(type_id, version_no)
   );
   CREATE TABLE IF NOT EXISTS config_fields (
@@ -380,10 +389,23 @@ app.post('/api/types/:typeId/versions', (req, res) => {
   const pending = db.prepare(`SELECT id FROM config_versions WHERE type_id = ? AND status = 'PENDING_RELEASE'`).get(typeId);
   if (pending) return res.status(400).json({ error: 'Pending version already exists' });
   const stmt = db.prepare(`
-    INSERT INTO config_versions (type_id, version_no, status, description, create_user, create_time)
-    VALUES (?, ?, 'PENDING_RELEASE', ?, ?, ?)
+    INSERT INTO config_versions (type_id, app_id, env_id, version_no, status, description, enabled, create_user, create_time, update_user, update_time)
+    VALUES (?, ?, ?, ?, 'PENDING_RELEASE', ?, ?, ?, ?, ?, ?)
   `);
-  const info = stmt.run(typeId, body.versionNo || String(Date.now()), body.description || '', req.headers['x-user'] || 'system', now());
+  // derive app/env from type
+  const typeRow = db.prepare(`SELECT app_id, env_id FROM config_types WHERE id = ?`).get(typeId);
+  const info = stmt.run(
+    typeId,
+    typeRow?.app_id || null,
+    typeRow?.env_id || null,
+    body.versionNo || String(Date.now()),
+    body.description || '',
+    body.enabled === false ? 0 : 1,
+    req.headers['x-user'] || 'system',
+    now(),
+    req.headers['x-user'] || 'system',
+    now()
+  );
   audit(req.headers['x-user'], 'CREATE_VERSION', 'ConfigVersion', info.lastInsertRowid, body);
   // Optional cloneFrom for rollback
   if (body.cloneFromVersionId) {
@@ -423,6 +445,71 @@ app.patch('/api/versions/:id/publish', (req, res) => {
   tx();
   audit(req.headers['x-user'], 'PUBLISH_VERSION', 'ConfigVersion', id, {});
   res.json({ id, status: 'RELEASED' });
+});
+
+// list versions with filters
+app.get('/api/versions', (req, res) => {
+  const { appId, envId, typeId, status } = req.query;
+  let sql = `
+    SELECT v.*, t.type_code, t.type_name, a.app_code, e.env_code
+    FROM config_versions v
+    JOIN config_types t ON v.type_id = t.id
+    LEFT JOIN applications a ON v.app_id = a.id
+    LEFT JOIN environments e ON v.env_id = e.id
+    WHERE 1=1
+  `;
+  const params = [];
+  if (appId) { sql += ` AND v.app_id = ?`; params.push(appId); }
+  if (envId) { sql += ` AND v.env_id = ?`; params.push(envId); }
+  if (typeId) { sql += ` AND v.type_id = ?`; params.push(typeId); }
+  if (status) { sql += ` AND v.status = ?`; params.push(status); }
+  sql += ` ORDER BY v.id DESC`;
+  res.json(db.prepare(sql).all(params));
+});
+
+// update version fields
+app.patch('/api/versions/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const b = req.body || {};
+  const version = db.prepare(`SELECT status FROM config_versions WHERE id = ?`).get(id);
+  if (!version) return res.status(404).json({ error: 'not found' });
+  if (version.status === 'RELEASED') return res.status(400).json({ error: 'released version immutable' });
+  const info = db.prepare(`
+    UPDATE config_versions
+    SET version_no = COALESCE(@version_no, version_no),
+        description = COALESCE(@description, description),
+        effective_from = COALESCE(@effective_from, effective_from),
+        effective_to = COALESCE(@effective_to, effective_to),
+        enabled = COALESCE(@enabled, enabled),
+        update_user = @actor,
+        update_time = @now
+    WHERE id = @id
+  `).run({
+    id,
+    version_no: b.versionNo ?? null,
+    description: b.description ?? null,
+    effective_from: b.effectiveFrom ?? null,
+    effective_to: b.effectiveTo ?? null,
+    enabled: b.enabled === undefined ? null : b.enabled ? 1 : 0,
+    actor: req.headers['x-user'] || 'system',
+    now: now()
+  });
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'UPDATE_VERSION', 'ConfigVersion', id, b);
+  res.json({ id });
+});
+
+app.delete('/api/versions/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const version = db.prepare(`SELECT status FROM config_versions WHERE id = ?`).get(id);
+  if (!version) return res.status(404).json({ error: 'not found' });
+  if (version.status === 'RELEASED') return res.status(400).json({ error: 'cannot delete released version' });
+  const info = db.prepare(`DELETE FROM config_versions WHERE id = ?`).run(id);
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'DELETE_VERSION', 'ConfigVersion', id, {});
+  res.json({ id });
 });
 
 // Diff between versions
