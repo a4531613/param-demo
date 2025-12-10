@@ -717,6 +717,18 @@ app.post('/api/versions/:versionId/data', (req, res) => {
   res.json({ ok: true });
 });
 
+app.delete('/api/data/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const row = db.prepare(`SELECT cd.id, v.status FROM config_data cd JOIN config_versions v ON cd.version_id = v.id WHERE cd.id = ?`).get(id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  if (row.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
+  const info = db.prepare(`DELETE FROM config_data WHERE id = ?`).run(id);
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'DELETE_DATA', 'ConfigData', id, {});
+  res.json({ id });
+});
+
 // --- Config Fetch API ---------------------------------------------------- //
 app.get('/api/config/:appCode/:typeCode/:key', (req, res) => {
   const { appCode, typeCode, key } = req.params;
