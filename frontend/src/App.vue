@@ -12,7 +12,6 @@
           <el-menu-item index="types">配置类型</el-menu-item>
           <el-menu-item index="versions">版本管理</el-menu-item>
           <el-menu-item index="fieldsManage">字段管理</el-menu-item>
-          <el-menu-item index="fields">字段定义(按版本)</el-menu-item>
           <el-menu-item index="data">配置数据</el-menu-item>
           <el-menu-item index="diff">版本对比</el-menu-item>
           <el-menu-item index="audit">审计日志</el-menu-item>
@@ -36,7 +35,6 @@ import AppsPanel from './components/AppsPanel.vue';
 import EnvsPanel from './components/EnvsPanel.vue';
 import TypesPanel from './components/TypesPanel.vue';
 import VersionsPanel from './components/VersionsPanel.vue';
-import FieldsPanel from './components/FieldsPanel.vue';
 import FieldsManagePanel from './components/FieldsManagePanel.vue';
 import DataPanel from './components/DataPanel.vue';
 import DiffPanel from './components/DiffPanel.vue';
@@ -47,7 +45,7 @@ const types = ref([]);
 const versions = ref([]);
 const currentTypeId = ref(null);
 
-const compMap = { apps: AppsPanel, envs: EnvsPanel, types: TypesPanel, versions: VersionsPanel, fieldsManage: FieldsManagePanel, fields: FieldsPanel, data: DataPanel, diff: DiffPanel, audit: AuditPanel };
+const compMap = { apps: AppsPanel, envs: EnvsPanel, types: TypesPanel, versions: VersionsPanel, fieldsManage: FieldsManagePanel, data: DataPanel, diff: DiffPanel, audit: AuditPanel };
 const currentComp = computed(() => compMap[active.value] || TypesPanel);
 
 async function loadTypes() {
