@@ -105,6 +105,9 @@
               <div class="card" v-for="u in data.users" :key="u.user_id">
                 <div><strong>{{ u.username }}</strong> <span class="pill">{{ u.role }}</span></div>
                 <small>{{ u.display_name }} · {{ u.email || '无邮箱' }}</small>
+                <div style="margin-top:6px;">
+                  <button class="ghost" @click="deleteUser(u.user_id)">删除</button>
+                </div>
               </div>
             </div>
           </div>
@@ -375,12 +378,36 @@
       <div v-if="page==='fetch'" class="panel">
         <h2>配置查询</h2>
         <div class="row">
-          <div><label>App Code</label><input v-model="forms.fetch.appCode"></div>
-          <div><label>Env Code</label><input v-model="forms.fetch.envCode"></div>
+          <div>
+            <label>App Code</label>
+            <select v-model="forms.fetch.appCode">
+              <option value="">请选择应用</option>
+              <option v-for="a in data.apps" :key="a.app_code" :value="a.app_code">{{ a.app_code }}</option>
+            </select>
+          </div>
+          <div>
+            <label>Env Code</label>
+            <select v-model="forms.fetch.envCode">
+              <option value="">请选择环境</option>
+              <option v-for="e in envOptions(forms.fetch.appCode)" :key="e.env_code" :value="e.env_code">{{ e.env_code }}</option>
+            </select>
+          </div>
         </div>
         <div class="row">
-          <div><label>Type Code</label><input v-model="forms.fetch.typeCode"></div>
-          <div><label>Version No (可选)</label><input v-model="forms.fetch.versionNo"></div>
+          <div>
+            <label>Type Code</label>
+            <select v-model="forms.fetch.typeCode">
+              <option value="">请选择类型</option>
+              <option v-for="t in typeOptions(forms.fetch.appCode, forms.fetch.envCode)" :key="t.type_code" :value="t.type_code">{{ t.type_code }}</option>
+            </select>
+          </div>
+          <div>
+            <label>Version No (可选)</label>
+            <select v-model="forms.fetch.versionNo">
+              <option value="">当前生效</option>
+              <option v-for="v in versionOptions(forms.fetch.appCode, forms.fetch.envCode, forms.fetch.typeCode)" :key="v.version_id" :value="v.version_no">{{ v.version_no }}</option>
+            </select>
+          </div>
         </div>
         <button class="cta" @click="fetchConfig">查询</button>
         <pre>{{ fetchedConfig }}</pre>
@@ -442,6 +469,11 @@
           this.forms.user.username = ''; this.forms.user.displayName = ''; this.forms.user.email = '';
           this.loadUsers();
         },
+        async deleteUser(id) {
+          await this.api(`/users/${id}`, { method: 'DELETE' });
+          this.notify('已删除用户');
+          this.loadUsers();
+        },
         // Apps
         async loadApps() {
           this.data.apps = await this.api('/apps');
@@ -451,6 +483,11 @@
           this.notify('应用创建成功');
           this.loadApps();
         },
+        async deleteApp(id) {
+          await this.api(`/apps/${id}`, { method: 'DELETE' });
+          this.notify('已删除应用');
+          this.loadApps(); this.loadEnvs(); this.loadTypes(); this.loadVersions();
+        },
         // Envs
         async loadEnvs() {
           this.data.envs = await this.api('/envs');
@@ -459,6 +496,14 @@
           await this.api('/envs', { method: 'POST', body: JSON.stringify(this.forms.env) });
           this.notify('环境创建成功');
           this.loadEnvs();
+        },
+        async deleteEnv(id) {
+          await this.api(`/envs/${id}`, { method: 'DELETE' });
+          this.notify('已删除环境');
+          this.loadEnvs(); this.loadTypes(); this.loadVersions();
+        },
+        envOptions(appCode) {
+          return this.data.envs.filter(e => !appCode || e.app_code === appCode);
         },
         // Types
         addField() { this.forms.type.fields.push({ fieldKey: '', fieldName: '', fieldType: 'string', isRequired: true, regexPattern: '', defaultValue: '' }); },
@@ -474,6 +519,14 @@
           this.notify('类型创建成功');
           this.loadTypes();
         },
+        async deleteType(id) {
+          await this.api(`/types/${id}`, { method: 'DELETE' });
+          this.notify('已删除类型');
+          this.loadTypes(); this.loadVersions();
+        },
+        typeOptions(appCode, envCode) {
+          return this.data.types.filter(t => (!appCode || t.app_code === appCode) && (!envCode || t.env_code === envCode));
+        },
         // Fields
         async loadFields() {
           if (!this.forms.field.typeId) return this.notify('请填写 typeId');
@@ -482,6 +535,11 @@
         async createField() {
           await this.api('/type-fields', { method: 'POST', body: JSON.stringify(this.forms.field) });
           this.notify('字段创建成功');
+          this.loadFields();
+        },
+        async deleteField(id) {
+          await this.api(`/type-fields/${id}`, { method: 'DELETE' });
+          this.notify('已删除字段');
           this.loadFields();
         },
         // Versions
@@ -508,6 +566,18 @@
           await this.api(`/versions/${id}/submit`, { method: 'POST', body: '{}' });
           this.notify('已提交');
           this.loadVersions();
+        },
+        async deleteVersion(id) {
+          await this.api(`/versions/${id}`, { method: 'DELETE' });
+          this.notify('已删除版本');
+          this.loadVersions();
+        },
+        versionOptions(appCode, envCode, typeCode) {
+          return this.data.versions.filter(v =>
+            (!appCode || v.app_code === appCode) &&
+            (!envCode || v.env_code === envCode) &&
+            (!typeCode || v.type_code === typeCode)
+          );
         },
         // Items maintenance
         addMaintenanceItem() { this.forms.items.items.push({ fieldKey: '', value: '', valueFormat: 'plain', isEnabled: true }); },

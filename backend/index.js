@@ -196,6 +196,27 @@ app.post('/api/users', (req, res) => {
   }
 });
 
+app.patch('/api/users/:id', (req, res) => {
+  const userId = Number(req.params.id);
+  const { displayName, role, email } = req.body || {};
+  const info = db
+    .prepare(
+      `UPDATE users SET display_name = COALESCE(?, display_name), role = COALESCE(?, role), email = COALESCE(?, email), updated_at = ? WHERE user_id = ?`
+    )
+    .run(displayName ?? null, role ?? null, email ?? null, nowIso(), userId);
+  if (!info.changes) return res.status(404).json({ error: 'user not found' });
+  recordAudit(req.get('X-User') || 'system', 'update_user', 'user', userId, { displayName, role, email });
+  res.json({ userId });
+});
+
+app.delete('/api/users/:id', (req, res) => {
+  const userId = Number(req.params.id);
+  const info = db.prepare(`DELETE FROM users WHERE user_id = ?`).run(userId);
+  if (!info.changes) return res.status(404).json({ error: 'user not found' });
+  recordAudit(req.get('X-User') || 'system', 'delete_user', 'user', userId, {});
+  res.json({ userId });
+});
+
 // Applications
 app.get('/api/apps', (_req, res) => {
   const rows = db
