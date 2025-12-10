@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Param Demo - Vue + SQLite</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+    header { padding: 16px 20px; background: #111827; border-bottom: 1px solid #1f2937; }
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; }
+    main { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; padding: 16px; }
+    section { background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 14px 16px; box-shadow: 0 6px 12px rgba(0,0,0,0.3); }
+    h2 { margin: 0 0 10px; font-size: 16px; color: #93c5fd; }
+    label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+    input, textarea, select { width: 100%; background: #0b1220; color: #e2e8f0; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; margin-bottom: 10px; }
+    textarea { min-height: 60px; }
+    button { background: linear-gradient(120deg, #38bdf8, #6366f1); border: none; color: #0b1220; font-weight: 700; padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-right: 8px; box-shadow: 0 6px 14px rgba(99,102,241,0.35); }
+    button.secondary { background: #1f2937; color: #e2e8f0; box-shadow: none; border: 1px solid #273449; }
+    .row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; background: #1e293b; border: 1px solid #273449; margin-right: 6px; margin-bottom: 6px; font-size: 12px; }
+    .list { max-height: 280px; overflow: auto; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; background: #0b1220; }
+    .card { border-bottom: 1px solid #1f2937; padding: 8px 0; }
+    .tag { padding: 2px 6px; border-radius: 6px; background: #0ea5e9; color: #0b1220; font-size: 11px; font-weight: 700; }
+    .tag.pending { background: #f59e0b; color: #0b1220; }
+    .tag.published { background: #34d399; color: #0b1220; }
+    small { color: #94a3b8; }
+    @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Param Demo · Vue + SQLite</h1>
+    <small>Backend: /api | Static served by Python http.server</small>
+  </header>
+  <main id="app">
+    <section>
+      <h2>Create Config Type</h2>
+      <div class="row">
+        <div>
+          <label>App Code</label>
+          <input v-model="newType.appCode" placeholder="billing">
+        </div>
+        <div>
+          <label>Env Code</label>
+          <input v-model="newType.envCode" placeholder="dev">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Type Code</label>
+          <input v-model="newType.typeCode" placeholder="mysql">
+        </div>
+        <div>
+          <label>Type Name</label>
+          <input v-model="newType.typeName" placeholder="MySQL Connection">
+        </div>
+      </div>
+      <label>Description</label>
+      <textarea v-model="newType.description" placeholder="Purpose of this configuration type"></textarea>
+      <div>
+        <h3 style="margin:6px 0 4px; color:#c4d4ff;">Fields</h3>
+        <div v-for="(field, idx) in newType.fields" :key="idx" class="card">
+          <div class="row">
+            <div>
+              <label>Field Key</label>
+              <input v-model="field.fieldKey" placeholder="host">
+            </div>
+            <div>
+              <label>Field Name</label>
+              <input v-model="field.fieldName" placeholder="DB Host">
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Field Type</label>
+              <select v-model="field.fieldType">
+                <option>string</option>
+                <option>int</option>
+                <option>boolean</option>
+                <option>json</option>
+                <option>secret</option>
+              </select>
+            </div>
+            <div>
+              <label>Required</label>
+              <select v-model="field.isRequired">
+                <option :value="true">true</option>
+                <option :value="false">false</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Regex</label>
+              <input v-model="field.regexPattern" placeholder="^\\S+$">
+            </div>
+            <div>
+              <label>Default</label>
+              <input v-model="field.defaultValue" placeholder="optional default">
+            </div>
+          </div>
+          <button class="secondary" @click="removeField(idx)">Remove Field</button>
+        </div>
+        <button @click="addField">+ Add Field</button>
+      </div>
+      <div style="margin-top:10px;">
+        <button @click="createType">Create Type</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Create Version & Items</h2>
+      <div class="row">
+        <div>
+          <label>App Code</label>
+          <input v-model="newVersion.appCode" placeholder="billing">
+        </div>
+        <div>
+          <label>Env Code</label>
+          <input v-model="newVersion.envCode" placeholder="dev">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Type Code</label>
+          <input v-model="newVersion.typeCode" placeholder="mysql">
+        </div>
+        <div>
+          <label>Version No</label>
+          <input v-model="newVersion.versionNo" placeholder="2024.12.10-1">
+        </div>
+      </div>
+      <label>Description</label>
+      <textarea v-model="newVersion.description" placeholder="Describe changes"></textarea>
+      <div>
+        <h3 style="margin:6px 0 4px; color:#c4d4ff;">Items</h3>
+        <div v-for="(item, idx) in newVersion.items" :key="idx" class="card">
+          <div class="row">
+            <div>
+              <label>Field Key</label>
+              <input v-model="item.fieldKey" placeholder="host">
+            </div>
+            <div>
+              <label>Value Format</label>
+              <select v-model="item.valueFormat">
+                <option>plain</option>
+                <option>json</option>
+                <option>secret</option>
+              </select>
+            </div>
+          </div>
+          <label>Value</label>
+          <textarea v-model="item.value" placeholder="Value"></textarea>
+          <button class="secondary" @click="removeItem(idx)">Remove Item</button>
+        </div>
+        <button @click="addItem">+ Add Item</button>
+      </div>
+      <div style="margin-top:10px;">
+        <button @click="createVersion">Create Version</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Types</h2>
+      <div class="row">
+        <div>
+          <label>App Code</label>
+          <input v-model="filters.appCode" placeholder="(optional)">
+        </div>
+        <div>
+          <label>Env Code</label>
+          <input v-model="filters.envCode" placeholder="(optional)">
+        </div>
+      </div>
+      <div>
+        <button class="secondary" @click="loadTypes">Refresh</button>
+      </div>
+      <div class="list">
+        <div v-for="t in types" :key="t.type_id" class="card">
+          <div><span class="pill">{{ t.app_code }}</span><span class="pill">{{ t.env_code }}</span></div>
+          <div style="font-weight:700;">{{ t.type_code }} · {{ t.type_name }}</div>
+          <small>{{ t.description || 'No description' }}</small>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Versions</h2>
+      <div class="row">
+        <div>
+          <label>App Code</label>
+          <input v-model="filters.appCode" placeholder="billing">
+        </div>
+        <div>
+          <label>Env Code</label>
+          <input v-model="filters.envCode" placeholder="prod">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Type Code</label>
+          <input v-model="filters.typeCode" placeholder="mysql">
+        </div>
+        <div>
+          <label style="visibility:hidden;">btn</label>
+          <button class="secondary" @click="loadVersions">Refresh</button>
+        </div>
+      </div>
+      <div class="list">
+        <div v-for="v in versions" :key="v.version_id" class="card">
+          <div><span class="pill">{{ v.app_code }}</span><span class="pill">{{ v.env_code }}</span><span class="pill">{{ v.type_code }}</span></div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <strong>{{ v.version_no }}</strong>
+            <span class="tag" :class="v.status">{{ v.status }}</span>
+            <span v-if="v.is_current" class="tag published">current</span>
+          </div>
+          <small>Effective: {{ v.effective_from || '—' }}</small><br>
+          <button @click="publish(v.version_id)">Publish</button>
+        </div>
+      </div>
+    </section>
+
+    <section style="grid-column:1 / span 2;">
+      <h2>Fetch Current Config</h2>
+      <div class="row">
+        <div>
+          <label>App Code</label>
+          <input v-model="fetchForm.appCode" placeholder="billing">
+        </div>
+        <div>
+          <label>Env Code</label>
+          <input v-model="fetchForm.envCode" placeholder="prod">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Type Code</label>
+          <input v-model="fetchForm.typeCode" placeholder="mysql">
+        </div>
+        <div>
+          <label>Version No (optional)</label>
+          <input v-model="fetchForm.versionNo" placeholder="specific version">
+        </div>
+      </div>
+      <div>
+        <button class="secondary" @click="fetchConfig">Fetch</button>
+      </div>
+      <pre style="background:#0b1220; border:1px solid #1f2937; padding:12px; border-radius:10px; overflow:auto; min-height:120px;">{{ fetchedConfig }}</pre>
+    </section>
+  </main>
+
+  <script>
+    const { createApp } = Vue;
+    createApp({
+      data() {
+        return {
+          apiBase: '/api',
+          newType: { appCode: 'billing', envCode: 'dev', typeCode: 'mysql', typeName: 'MySQL', description: '', fields: [] },
+          newVersion: { appCode: 'billing', envCode: 'dev', typeCode: 'mysql', versionNo: '2024.12.10-1', description: '', items: [] },
+          filters: { appCode: '', envCode: '', typeCode: '' },
+          fetchForm: { appCode: 'billing', envCode: 'dev', typeCode: 'mysql', versionNo: '' },
+          types: [],
+          versions: [],
+          fetchedConfig: ''
+        };
+      },
+      methods: {
+        async api(path, options = {}) {
+          const res = await fetch(`${this.apiBase}${path}`, {
+            headers: { 'Content-Type': 'application/json', 'X-User': 'demo-user' },
+            ...options,
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || res.statusText);
+          }
+          return res.json();
+        },
+        addField() {
+          this.newType.fields.push({ fieldKey: '', fieldName: '', fieldType: 'string', isRequired: false, regexPattern: '', defaultValue: '' });
+        },
+        removeField(idx) { this.newType.fields.splice(idx, 1); },
+        async createType() {
+          try {
+            await this.api('/types', { method: 'POST', body: JSON.stringify(this.newType) });
+            alert('Type created');
+            this.loadTypes();
+          } catch (e) { alert(e.message); }
+        },
+        addItem() {
+          this.newVersion.items.push({ fieldKey: '', value: '', valueFormat: 'plain' });
+        },
+        removeItem(idx) { this.newVersion.items.splice(idx, 1); },
+        async createVersion() {
+          try {
+            await this.api('/versions', { method: 'POST', body: JSON.stringify(this.newVersion) });
+            alert('Version created');
+            this.loadVersions();
+          } catch (e) { alert(e.message); }
+        },
+        async publish(id) {
+          try {
+            await this.api(`/versions/${id}/publish`, { method: 'POST', body: '{}' });
+            alert('Published');
+            this.loadVersions();
+          } catch (e) { alert(e.message); }
+        },
+        async loadTypes() {
+          const qs = new URLSearchParams();
+          if (this.filters.appCode) qs.append('appCode', this.filters.appCode);
+          if (this.filters.envCode) qs.append('envCode', this.filters.envCode);
+          this.types = await this.api(`/types?${qs.toString()}`);
+        },
+        async loadVersions() {
+          const qs = new URLSearchParams();
+          if (this.filters.appCode) qs.append('appCode', this.filters.appCode);
+          if (this.filters.envCode) qs.append('envCode', this.filters.envCode);
+          if (this.filters.typeCode) qs.append('typeCode', this.filters.typeCode);
+          this.versions = await this.api(`/versions?${qs.toString()}`);
+        },
+        async fetchConfig() {
+          try {
+            const qs = new URLSearchParams(this.fetchForm);
+            const data = await this.api(`/config?${qs.toString()}`);
+            this.fetchedConfig = JSON.stringify(data, null, 2);
+          } catch (e) { this.fetchedConfig = e.message; }
+        }
+      },
+      mounted() {
+        this.addField();
+        this.addItem();
+        this.loadTypes();
+        this.loadVersions();
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
