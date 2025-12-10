@@ -35,7 +35,11 @@ export const api = {
   diffVersions: (a, b) => request(`/versions/${a}/diff/${b}`),
   // fields
   listFields: (versionId) => request(`/versions/${versionId}/fields`),
+  listFieldsAll: (params={}) => request(`/fields?${new URLSearchParams(params)}`),
   createField: (versionId, payload) => request(`/versions/${versionId}/fields`, { method: 'POST', body: JSON.stringify(payload) }),
+  createFieldGlobal: (payload) => request(`/fields`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateField: (id, payload) => request(`/fields/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteField: (id) => request(`/fields/${id}`, { method: 'DELETE' }),
   // data
   listData: (versionId) => request(`/versions/${versionId}/data`),
   upsertData: (versionId, payload) => request(`/versions/${versionId}/data`, { method: 'POST', body: JSON.stringify(payload) }),

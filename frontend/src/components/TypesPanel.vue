@@ -2,24 +2,32 @@
   <el-card>
     <template #header>
       <div class="toolbar">
-        <div>
-          <el-input v-model="filters.keyword" placeholder="按 code / 名称过滤" style="width:220px;" clearable />
-          <el-select v-model="filters.env" placeholder="环境" clearable style="width:120px; margin-left:8px;">
-            <el-option label="dev" value="dev" />
-            <el-option label="test" value="test" />
-            <el-option label="pre" value="pre" />
-            <el-option label="prod" value="prod" />
+        <div class="filters">
+          <el-input v-model="filters.keyword" placeholder="按 code / 名称过滤" style="width:200px;" clearable />
+          <el-select v-model="filters.appId" placeholder="应用" clearable style="width:160px;">
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+          </el-select>
+          <el-select v-model="filters.envId" placeholder="环境" clearable style="width:160px;">
+            <el-option v-for="e in envs" :key="e.id" :label="`${e.env_name} (${e.env_code})`" :value="e.id" />
           </el-select>
         </div>
         <el-button type="primary" @click="openModal()">新增类型</el-button>
       </div>
     </template>
     <el-table :data="filtered" border style="width:100%;">
-      <el-table-column prop="type_code" label="TypeCode" />
+      <el-table-column prop="id" label="ID" width="80" />
+      <el-table-column prop="type_code" label="TypeCode" width="160" />
       <el-table-column prop="type_name" label="名称" />
-      <el-table-column prop="app_code" label="应用" />
-      <el-table-column prop="env" label="环境" />
+      <el-table-column prop="app_name" label="应用" />
+      <el-table-column prop="env_name" label="环境" />
       <el-table-column prop="description" label="描述" />
+      <el-table-column prop="create_user" label="创建人" width="120" />
+      <el-table-column prop="create_time" label="创建时间" width="180" />
+      <el-table-column prop="update_user" label="更新人" width="120" />
+      <el-table-column prop="update_time" label="更新时间" width="180" />
+      <el-table-column prop="enabled" label="启用" width="90">
+        <template #default="s"><el-tag :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '是' : '否' }}</el-tag></template>
+      </el-table-column>
       <el-table-column width="180" label="操作">
         <template #default="scope">
           <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
@@ -33,15 +41,17 @@
     <el-form :model="modal.form" label-width="110px">
       <el-form-item label="Type Code"><el-input v-model="modal.form.typeCode" :disabled="!!modal.editId" /></el-form-item>
       <el-form-item label="Type 名称"><el-input v-model="modal.form.typeName" /></el-form-item>
-      <el-form-item label="应用"><el-input v-model="modal.form.appCode" /></el-form-item>
-      <el-form-item label="环境">
-        <el-select v-model="modal.form.env">
-          <el-option label="dev" value="dev" />
-          <el-option label="test" value="test" />
-          <el-option label="pre" value="pre" />
-          <el-option label="prod" value="prod" />
+      <el-form-item label="应用">
+        <el-select v-model="modal.form.appId" placeholder="请选择应用">
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
       </el-form-item>
+      <el-form-item label="环境">
+        <el-select v-model="modal.form.envId" placeholder="请选择环境">
+          <el-option v-for="e in envs" :key="e.id" :label="`${e.env_name} (${e.env_code})`" :value="e.id" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="启用"><el-switch v-model="modal.form.enabled" /></el-form-item>
       <el-form-item label="描述"><el-input v-model="modal.form.description" type="textarea" /></el-form-item>
     </el-form>
     <template #footer>
@@ -57,42 +67,45 @@ import { ElMessageBox, ElMessage } from 'element-plus';
 import { api } from '../api';
 
 const props = defineProps({ types: { type: Array, default: () => [] } });
+const apps = reactive([]);
+const envs = reactive([]);
 const emits = defineEmits(['refreshTypes']);
 
-const filters = reactive({ keyword: '', env: '' });
+const filters = reactive({ keyword: '', appId: null, envId: null });
 const modal = reactive({
   visible: false,
   editId: null,
-  form: { typeCode: '', typeName: '', appCode: '', env: 'prod', description: '' }
+  form: { typeCode: '', typeName: '', appId: null, envId: null, enabled: true, description: '' }
 });
 
 const filtered = computed(() => {
   return props.types.filter((t) => {
     const kw = filters.keyword.toLowerCase();
     const okKw = !kw || t.type_code.toLowerCase().includes(kw) || (t.type_name || '').toLowerCase().includes(kw);
-    const okEnv = !filters.env || t.env === filters.env;
-    return okKw && okEnv;
+    const okApp = !filters.appId || t.app_id === filters.appId;
+    const okEnv = !filters.envId || t.env_id === filters.envId;
+    return okKw && okApp && okEnv;
   });
 });
 
 function openModal(row) {
   if (row) {
     modal.editId = row.id;
-    modal.form = { typeCode: row.type_code, typeName: row.type_name, appCode: row.app_code, env: row.env, description: row.description || '' };
+    modal.form = { typeCode: row.type_code, typeName: row.type_name, appId: row.app_id, envId: row.env_id, enabled: !!row.enabled, description: row.description || '' };
   } else {
     modal.editId = null;
-    modal.form = { typeCode: '', typeName: '', appCode: '', env: 'prod', description: '' };
+    modal.form = { typeCode: '', typeName: '', appId: null, envId: null, enabled: true, description: '' };
   }
   modal.visible = true;
 }
 
 async function save() {
-  if (!modal.form.typeCode || !modal.form.typeName) {
-    ElMessage.warning('请填写必填项');
+  if (!modal.form.typeCode || !modal.form.typeName || !modal.form.appId || !modal.form.envId) {
+    ElMessage.warning('请填写必填项并选择应用/环境');
     return;
   }
   if (modal.editId) {
-    await api.updateType(modal.editId, { typeName: modal.form.typeName, description: modal.form.description, enabled: true });
+    await api.updateType(modal.editId, { typeName: modal.form.typeName, description: modal.form.description, enabled: modal.form.enabled, appId: modal.form.appId, envId: modal.form.envId });
   } else {
     await api.createType(modal.form);
   }
@@ -106,12 +119,12 @@ async function remove(row) {
   emits('refreshTypes');
 }
 
-watch(
-  () => props.types,
-  () => {
-    // keep filtered reactive
-  }
-);
+async function loadRefs() {
+  apps.splice(0, apps.length, ...(await api.listApps()));
+  envs.splice(0, envs.length, ...(await api.listEnvs()));
+}
+
+loadRefs();
 </script>
 
 <style scoped>
@@ -119,5 +132,10 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>
