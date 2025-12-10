@@ -18,6 +18,11 @@ export const api = {
   createApp: (payload) => request('/apps', { method: 'POST', body: JSON.stringify(payload) }),
   updateApp: (id, payload) => request(`/apps/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteApp: (id) => request(`/apps/${id}`, { method: 'DELETE' }),
+  // environments
+  listEnvs: (appId) => request(`/envs${appId ? `?appId=${appId}` : ''}`),
+  createEnv: (payload) => request('/envs', { method: 'POST', body: JSON.stringify(payload) }),
+  updateEnv: (id, payload) => request(`/envs/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteEnv: (id) => request(`/envs/${id}`, { method: 'DELETE' }),
   // types
   listTypes: (params = {}) => request(`/types?${new URLSearchParams(params)}`),
   createType: (payload) => request('/types', { method: 'POST', body: JSON.stringify(payload) }),

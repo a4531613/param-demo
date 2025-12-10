@@ -57,6 +57,20 @@ function initSchema() {
     update_user TEXT,
     update_time TEXT DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS environments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    env_code TEXT NOT NULL,
+    env_name TEXT NOT NULL,
+    app_id INTEGER NOT NULL,
+    description TEXT,
+    enabled INTEGER DEFAULT 1,
+    create_user TEXT,
+    create_time TEXT DEFAULT (datetime('now')),
+    update_user TEXT,
+    update_time TEXT DEFAULT (datetime('now')),
+    UNIQUE(app_id, env_code),
+    FOREIGN KEY (app_id) REFERENCES applications(id) ON DELETE CASCADE
+  );
   CREATE TABLE IF NOT EXISTS config_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type_code TEXT NOT NULL,
@@ -192,6 +206,74 @@ app.delete('/api/apps/:id', (req, res) => {
   const info = db.prepare(`DELETE FROM applications WHERE id = ?`).run(id);
   if (!info.changes) return res.status(404).json({ error: 'not found' });
   audit(req.headers['x-user'], 'DELETE_APP', 'Application', id, {});
+  res.json({ id });
+});
+
+// --- Environments CRUD --------------------------------------------------- //
+app.get('/api/envs', (req, res) => {
+  const { appId } = req.query;
+  let sql = `SELECT e.*, a.app_code FROM environments e JOIN applications a ON e.app_id = a.id WHERE 1=1`;
+  const params = [];
+  if (appId) { sql += ` AND e.app_id = ?`; params.push(appId); }
+  sql += ` ORDER BY e.id DESC`;
+  res.json(db.prepare(sql).all(params));
+});
+
+app.post('/api/envs', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const b = req.body || {};
+  try {
+    const info = db.prepare(`
+      INSERT INTO environments (env_code, env_name, app_id, description, enabled, create_user, update_user, update_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      b.envCode,
+      b.envName,
+      b.appId,
+      b.description || '',
+      b.enabled === false ? 0 : 1,
+      req.headers['x-user'] || 'system',
+      req.headers['x-user'] || 'system',
+      now()
+    );
+    audit(req.headers['x-user'], 'CREATE_ENV', 'Environment', info.lastInsertRowid, b);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.patch('/api/envs/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const b = req.body || {};
+  const info = db.prepare(`
+    UPDATE environments
+    SET env_name = COALESCE(@env_name, env_name),
+        description = COALESCE(@description, description),
+        enabled = COALESCE(@enabled, enabled),
+        update_user = @actor,
+        update_time = @now
+    WHERE id = @id
+  `).run({
+    id,
+    env_name: b.envName ?? null,
+    description: b.description ?? null,
+    enabled: b.enabled === undefined ? null : b.enabled ? 1 : 0,
+    actor: req.headers['x-user'] || 'system',
+    now: now()
+  });
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'UPDATE_ENV', 'Environment', id, b);
+  res.json({ id });
+});
+
+app.delete('/api/envs/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const info = db.prepare(`DELETE FROM environments WHERE id = ?`).run(id);
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'DELETE_ENV', 'Environment', id, {});
   res.json({ id });
 });
 
