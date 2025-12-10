@@ -7,6 +7,7 @@
     <el-container>
       <el-aside width="220px" class="aside">
         <el-menu :default-active="active" @select="active = $event">
+          <el-menu-item index="apps">应用管理</el-menu-item>
           <el-menu-item index="types">配置类型</el-menu-item>
           <el-menu-item index="versions">版本管理</el-menu-item>
           <el-menu-item index="fields">字段定义</el-menu-item>
@@ -29,6 +30,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { api } from './api';
+import AppsPanel from './components/AppsPanel.vue';
 import TypesPanel from './components/TypesPanel.vue';
 import VersionsPanel from './components/VersionsPanel.vue';
 import FieldsPanel from './components/FieldsPanel.vue';
@@ -41,7 +43,7 @@ const types = ref([]);
 const versions = ref([]);
 const currentTypeId = ref(null);
 
-const compMap = { types: TypesPanel, versions: VersionsPanel, fields: FieldsPanel, data: DataPanel, diff: DiffPanel, audit: AuditPanel };
+const compMap = { apps: AppsPanel, types: TypesPanel, versions: VersionsPanel, fields: FieldsPanel, data: DataPanel, diff: DiffPanel, audit: AuditPanel };
 const currentComp = computed(() => compMap[active.value] || TypesPanel);
 
 async function loadTypes() {

@@ -46,6 +46,17 @@ function initSchema() {
     username TEXT UNIQUE NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer'
   );
+  CREATE TABLE IF NOT EXISTS applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_code TEXT UNIQUE NOT NULL,
+    app_name TEXT NOT NULL,
+    description TEXT,
+    enabled INTEGER DEFAULT 1,
+    create_user TEXT,
+    create_time TEXT DEFAULT (datetime('now')),
+    update_user TEXT,
+    update_time TEXT DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS config_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type_code TEXT NOT NULL,
@@ -120,6 +131,69 @@ function initSchema() {
   );
   `);
 }
+
+// --- Applications CRUD --------------------------------------------------- //
+app.get('/api/apps', (_req, res) => {
+  const rows = db.prepare(`SELECT * FROM applications ORDER BY id DESC`).all();
+  res.json(rows);
+});
+
+app.post('/api/apps', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const b = req.body || {};
+  try {
+    const info = db.prepare(`
+      INSERT INTO applications (app_code, app_name, description, enabled, create_user, update_user, update_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      b.appCode,
+      b.appName || b.appCode,
+      b.description || '',
+      b.enabled === false ? 0 : 1,
+      req.headers['x-user'] || 'system',
+      req.headers['x-user'] || 'system',
+      now()
+    );
+    audit(req.headers['x-user'], 'CREATE_APP', 'Application', info.lastInsertRowid, b);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.patch('/api/apps/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const b = req.body || {};
+  const info = db.prepare(`
+    UPDATE applications
+    SET app_name = COALESCE(@app_name, app_name),
+        description = COALESCE(@description, description),
+        enabled = COALESCE(@enabled, enabled),
+        update_user = @actor,
+        update_time = @now
+    WHERE id = @id
+  `).run({
+    id,
+    app_name: b.appName ?? null,
+    description: b.description ?? null,
+    enabled: b.enabled === undefined ? null : b.enabled ? 1 : 0,
+    actor: req.headers['x-user'] || 'system',
+    now: now()
+  });
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'UPDATE_APP', 'Application', id, b);
+  res.json({ id });
+});
+
+app.delete('/api/apps/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const info = db.prepare(`DELETE FROM applications WHERE id = ?`).run(id);
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'DELETE_APP', 'Application', id, {});
+  res.json({ id });
+});
 
 // --- Config Types CRUD ---------------------------------------------------- //
 app.get('/api/types', (req, res) => {

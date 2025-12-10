@@ -13,6 +13,11 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // applications
+  listApps: () => request('/apps'),
+  createApp: (payload) => request('/apps', { method: 'POST', body: JSON.stringify(payload) }),
+  updateApp: (id, payload) => request(`/apps/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteApp: (id) => request(`/apps/${id}`, { method: 'DELETE' }),
   // types
   listTypes: (params = {}) => request(`/types?${new URLSearchParams(params)}`),
   createType: (payload) => request('/types', { method: 'POST', body: JSON.stringify(payload) }),
