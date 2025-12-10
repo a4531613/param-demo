@@ -105,7 +105,6 @@ function initSchema() {
   CREATE TABLE IF NOT EXISTS config_fields (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type_id INTEGER NOT NULL,
-    version_id INTEGER NOT NULL,
     field_code TEXT NOT NULL,
     field_name TEXT NOT NULL,
     data_type TEXT NOT NULL,
@@ -121,9 +120,7 @@ function initSchema() {
     create_time TEXT DEFAULT (datetime('now')),
     update_user TEXT,
     update_time TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE,
-    FOREIGN KEY (version_id) REFERENCES config_versions(id) ON DELETE CASCADE,
-    UNIQUE(version_id, field_code)
+    FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE
   );
   CREATE TABLE IF NOT EXISTS config_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -499,9 +496,8 @@ app.post('/api/versions/:versionId/fields', (req, res) => {
 app.get('/api/fields', (req, res) => {
   const { appId, envId, typeId, versionId } = req.query;
   let sql = `
-    SELECT cf.*, t.app_id, t.env_id, t.type_code, v.version_no
+    SELECT cf.*, t.app_id, t.env_id, t.type_code
     FROM config_fields cf
-    JOIN config_versions v ON cf.version_id = v.id
     JOIN config_types t ON cf.type_id = t.id
     WHERE 1=1
   `;
@@ -517,22 +513,12 @@ app.get('/api/fields', (req, res) => {
 app.post('/api/fields', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const b = req.body || {};
-  if (!b.versionId && !b.typeId) return res.status(400).json({ error: 'typeId or versionId required' });
-  let version;
-  if (b.versionId) {
-    version = db.prepare(`SELECT status, type_id, id FROM config_versions WHERE id = ?`).get(b.versionId);
-  } else {
-    version = db.prepare(`SELECT id, status, type_id FROM config_versions WHERE type_id = ? AND status = 'PENDING_RELEASE' ORDER BY id DESC LIMIT 1`).get(b.typeId);
-  }
-  if (!version) return res.status(404).json({ error: 'pending version not found for type' });
-  if (version.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
   try {
     const info = db.prepare(`
-      INSERT INTO config_fields (type_id, version_id, field_code, field_name, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, update_user, update_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO config_fields (type_id, field_code, field_name, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, update_user, update_time)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      version.type_id,
-      b.versionId,
+      b.typeId,
       b.fieldCode,
       b.fieldName,
       b.dataType || 'string',
@@ -600,9 +586,6 @@ app.patch('/api/fields/:id', (req, res) => {
 app.delete('/api/fields/:id', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const id = Number(req.params.id);
-  const field = db.prepare(`SELECT v.status FROM config_fields cf JOIN config_versions v ON cf.version_id = v.id WHERE cf.id = ?`).get(id);
-  if (!field) return res.status(404).json({ error: 'not found' });
-  if (field.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
   const info = db.prepare(`DELETE FROM config_fields WHERE id = ?`).run(id);
   if (!info.changes) return res.status(404).json({ error: 'not found' });
   audit(req.headers['x-user'], 'DELETE_FIELD', 'ConfigField', id, {});
