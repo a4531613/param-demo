@@ -1,254 +1,394 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Param Demo - Vue + SQLite</title>
+  <title>参数配置中心 · Vue + Express + SQLite</title>
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <style>
-    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
-    header { padding: 16px 20px; background: #111827; border-bottom: 1px solid #1f2937; }
-    h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; }
-    main { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; padding: 16px; }
-    section { background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 14px 16px; box-shadow: 0 6px 12px rgba(0,0,0,0.3); }
-    h2 { margin: 0 0 10px; font-size: 16px; color: #93c5fd; }
-    label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
-    input, textarea, select { width: 100%; background: #0b1220; color: #e2e8f0; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; margin-bottom: 10px; }
-    textarea { min-height: 60px; }
-    button { background: linear-gradient(120deg, #38bdf8, #6366f1); border: none; color: #0b1220; font-weight: 700; padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-right: 8px; box-shadow: 0 6px 14px rgba(99,102,241,0.35); }
-    button.secondary { background: #1f2937; color: #e2e8f0; box-shadow: none; border: 1px solid #273449; }
-    .row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    :root {
+      --bg: #0b1021;
+      --panel: #0f172a;
+      --card: #0f182f;
+      --line: #1f2937;
+      --primary: #38bdf8;
+      --primary-2: #6366f1;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --success: #34d399;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; background: radial-gradient(160% 120% at 10% 20%, #0f172a 0%, #0b1021 40%, #0a0d1c 100%); color: var(--text); }
+    header { height: 56px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; background: #0f172a; border-bottom: 1px solid var(--line); box-shadow: 0 4px 16px rgba(0,0,0,0.35); position: sticky; top: 0; z-index: 10; }
+    header h1 { font-size: 18px; letter-spacing: 0.4px; margin: 0; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .badge { padding: 4px 8px; border-radius: 999px; background: rgba(99,102,241,0.12); color: var(--primary-2); font-weight: 700; font-size: 12px; border: 1px solid rgba(99,102,241,0.4); }
+    .layout { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 56px); }
+    nav { background: #0e162b; border-right: 1px solid var(--line); padding: 16px 12px; }
+    nav .menu-title { color: var(--muted); font-size: 12px; letter-spacing: 0.6px; margin: 10px 12px 6px; text-transform: uppercase; }
+    nav button { width: 100%; text-align: left; border: 1px solid transparent; background: transparent; color: var(--text); padding: 10px 12px; border-radius: 10px; margin-bottom: 4px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s ease; }
+    nav button:hover { background: #111c34; border-color: #1f2937; }
+    nav button.active { background: linear-gradient(120deg, rgba(56,189,248,0.12), rgba(99,102,241,0.18)); border-color: rgba(99,102,241,0.4); box-shadow: 0 6px 16px rgba(99,102,241,0.25); }
+    main { padding: 18px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); margin-bottom: 16px; }
+    .panel h2 { margin: 0 0 10px; font-size: 16px; color: #cbd5ff; }
+    .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input, select, textarea { width: 100%; background: #0b1220; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+    textarea { min-height: 70px; }
+    button.cta { background: linear-gradient(120deg, var(--primary), var(--primary-2)); border: none; color: #0b1220; font-weight: 700; padding: 9px 14px; border-radius: 9px; cursor: pointer; box-shadow: 0 6px 14px rgba(99,102,241,0.35); margin-right: 8px; }
+    button.ghost { background: #111c34; border: 1px solid var(--line); color: var(--text); padding: 8px 12px; border-radius: 9px; cursor: pointer; }
+    .list { border: 1px solid var(--line); border-radius: 10px; background: #0b1220; padding: 10px; max-height: 340px; overflow: auto; }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .card { border-bottom: 1px solid var(--line); padding: 8px 0; }
+    .tag { padding: 3px 8px; border-radius: 7px; font-size: 11px; font-weight: 700; color: #0b1021; }
+    .tag.success { background: var(--success); }
+    .tag.warn { background: var(--warn); }
+    .tag.draft { background: #cbd5ff; color: #0b1021; }
+    .tag.pending { background: #f59e0b; }
+    .tag.published { background: #34d399; }
+    .stat { display: inline-flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 8px; background: #111c34; border: 1px solid var(--line); margin-right: 8px; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { border-bottom: 1px solid var(--line); padding: 8px 6px; text-align: left; }
+    .table th { color: var(--muted); font-weight: 600; }
     .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; background: #1e293b; border: 1px solid #273449; margin-right: 6px; margin-bottom: 6px; font-size: 12px; }
-    .list { max-height: 280px; overflow: auto; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; background: #0b1220; }
-    .card { border-bottom: 1px solid #1f2937; padding: 8px 0; }
-    .tag { padding: 2px 6px; border-radius: 6px; background: #0ea5e9; color: #0b1220; font-size: 11px; font-weight: 700; }
-    .tag.pending { background: #f59e0b; color: #0b1220; }
-    .tag.published { background: #34d399; color: #0b1220; }
-    small { color: #94a3b8; }
-    @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+    pre { background: #0b1220; border: 1px solid var(--line); padding: 12px; border-radius: 10px; overflow: auto; }
+    .toast { position: fixed; right: 20px; bottom: 20px; background: #111c34; color: var(--text); padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 24px rgba(0,0,0,0.35); min-width: 220px; }
+    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } nav { position: sticky; top: 56px; z-index: 9; } }
   </style>
 </head>
 <body>
   <header>
-    <h1>Param Demo · Vue + SQLite</h1>
-    <small>Backend: /api | Static served by Python http.server</small>
+    <div class="brand">
+      <div class="badge">Param Center</div>
+      <h1>参数配置中心 · Vue + Express + SQLite</h1>
+    </div>
+    <div style="color: var(--muted); font-size: 13px;">Demo 用户：<strong>demo-user</strong></div>
   </header>
-  <main id="app">
-    <section>
-      <h2>Create Config Type</h2>
-      <div class="row">
-        <div>
-          <label>App Code</label>
-          <input v-model="newType.appCode" placeholder="billing">
-        </div>
-        <div>
-          <label>Env Code</label>
-          <input v-model="newType.envCode" placeholder="dev">
-        </div>
-      </div>
-      <div class="row">
-        <div>
-          <label>Type Code</label>
-          <input v-model="newType.typeCode" placeholder="mysql">
-        </div>
-        <div>
-          <label>Type Name</label>
-          <input v-model="newType.typeName" placeholder="MySQL Connection">
-        </div>
-      </div>
-      <label>Description</label>
-      <textarea v-model="newType.description" placeholder="Purpose of this configuration type"></textarea>
-      <div>
-        <h3 style="margin:6px 0 4px; color:#c4d4ff;">Fields</h3>
-        <div v-for="(field, idx) in newType.fields" :key="idx" class="card">
-          <div class="row">
-            <div>
-              <label>Field Key</label>
-              <input v-model="field.fieldKey" placeholder="host">
-            </div>
-            <div>
-              <label>Field Name</label>
-              <input v-model="field.fieldName" placeholder="DB Host">
+  <div class="layout" id="app">
+    <nav>
+      <div class="menu-title">管理菜单</div>
+      <button :class="{active: page==='users'}" @click="page='users'">👤 用户管理</button>
+      <button :class="{active: page==='apps'}" @click="page='apps'">🧭 应用管理</button>
+      <button :class="{active: page==='envs'}" @click="page='envs'">🌐 环境管理</button>
+      <button :class="{active: page==='types'}" @click="page='types'">🗂 配置类型</button>
+      <button :class="{active: page==='fields'}" @click="page='fields'">🔑 类型字段</button>
+      <button :class="{active: page==='versions'}" @click="page='versions'">📦 版本管理</button>
+      <button :class="{active: page==='items'}" @click="page='items'">🧾 数据维护</button>
+      <button :class="{active: page==='audit'}" @click="page='audit'">📜 审计日志</button>
+      <div class="menu-title">消费</div>
+      <button :class="{active: page==='fetch'}" @click="page='fetch'">🔍 配置查询</button>
+    </nav>
+    <main>
+      <!-- Users -->
+      <div v-if="page==='users'" class="panel">
+        <h2>用户管理</h2>
+        <div class="section-grid">
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">创建用户</h3>
+            <label>用户名</label><input v-model="forms.user.username" placeholder="alice">
+            <label>显示名</label><input v-model="forms.user.displayName" placeholder="Alice Zhang">
+            <label>角色</label>
+            <select v-model="forms.user.role">
+              <option value="admin">admin</option>
+              <option value="user">user</option>
+            </select>
+            <label>Email</label><input v-model="forms.user.email" placeholder="alice@example.com">
+            <button class="cta" @click="createUser">创建</button>
+          </div>
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">用户列表</h3>
+            <div class="list">
+              <div class="card" v-for="u in data.users" :key="u.user_id">
+                <div><strong>{{ u.username }}</strong> <span class="pill">{{ u.role }}</span></div>
+                <small>{{ u.display_name }} · {{ u.email || '无邮箱' }}</small>
+              </div>
             </div>
           </div>
-          <div class="row">
-            <div>
-              <label>Field Type</label>
-              <select v-model="field.fieldType">
-                <option>string</option>
-                <option>int</option>
-                <option>boolean</option>
-                <option>json</option>
-                <option>secret</option>
-              </select>
-            </div>
-            <div>
-              <label>Required</label>
-              <select v-model="field.isRequired">
-                <option :value="true">true</option>
-                <option :value="false">false</option>
-              </select>
-            </div>
-          </div>
-          <div class="row">
-            <div>
-              <label>Regex</label>
-              <input v-model="field.regexPattern" placeholder="^\\S+$">
-            </div>
-            <div>
-              <label>Default</label>
-              <input v-model="field.defaultValue" placeholder="optional default">
-            </div>
-          </div>
-          <button class="secondary" @click="removeField(idx)">Remove Field</button>
         </div>
-        <button @click="addField">+ Add Field</button>
       </div>
-      <div style="margin-top:10px;">
-        <button @click="createType">Create Type</button>
-      </div>
-    </section>
 
-    <section>
-      <h2>Create Version & Items</h2>
-      <div class="row">
-        <div>
-          <label>App Code</label>
-          <input v-model="newVersion.appCode" placeholder="billing">
-        </div>
-        <div>
-          <label>Env Code</label>
-          <input v-model="newVersion.envCode" placeholder="dev">
-        </div>
-      </div>
-      <div class="row">
-        <div>
-          <label>Type Code</label>
-          <input v-model="newVersion.typeCode" placeholder="mysql">
-        </div>
-        <div>
-          <label>Version No</label>
-          <input v-model="newVersion.versionNo" placeholder="2024.12.10-1">
-        </div>
-      </div>
-      <label>Description</label>
-      <textarea v-model="newVersion.description" placeholder="Describe changes"></textarea>
-      <div>
-        <h3 style="margin:6px 0 4px; color:#c4d4ff;">Items</h3>
-        <div v-for="(item, idx) in newVersion.items" :key="idx" class="card">
-          <div class="row">
-            <div>
-              <label>Field Key</label>
-              <input v-model="item.fieldKey" placeholder="host">
-            </div>
-            <div>
-              <label>Value Format</label>
-              <select v-model="item.valueFormat">
-                <option>plain</option>
-                <option>json</option>
-                <option>secret</option>
-              </select>
+      <!-- Applications -->
+      <div v-if="page==='apps'" class="panel">
+        <h2>应用管理</h2>
+        <div class="section-grid">
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">创建应用</h3>
+            <label>App Code</label><input v-model="forms.app.appCode" placeholder="billing">
+            <label>App 名称</label><input v-model="forms.app.appName" placeholder="计费系统">
+            <label>描述</label><textarea v-model="forms.app.description"></textarea>
+            <button class="cta" @click="createApp">创建</button>
+          </div>
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">应用列表</h3>
+            <div class="list">
+              <div class="card" v-for="a in data.apps" :key="a.app_id">
+                <div><strong>{{ a.app_code }}</strong></div>
+                <small>{{ a.app_name }} · {{ a.description || '无描述' }}</small>
+              </div>
             </div>
           </div>
-          <label>Value</label>
-          <textarea v-model="item.value" placeholder="Value"></textarea>
-          <button class="secondary" @click="removeItem(idx)">Remove Item</button>
         </div>
-        <button @click="addItem">+ Add Item</button>
       </div>
-      <div style="margin-top:10px;">
-        <button @click="createVersion">Create Version</button>
-      </div>
-    </section>
 
-    <section>
-      <h2>Types</h2>
-      <div class="row">
-        <div>
-          <label>App Code</label>
-          <input v-model="filters.appCode" placeholder="(optional)">
-        </div>
-        <div>
-          <label>Env Code</label>
-          <input v-model="filters.envCode" placeholder="(optional)">
-        </div>
-      </div>
-      <div>
-        <button class="secondary" @click="loadTypes">Refresh</button>
-      </div>
-      <div class="list">
-        <div v-for="t in types" :key="t.type_id" class="card">
-          <div><span class="pill">{{ t.app_code }}</span><span class="pill">{{ t.env_code }}</span></div>
-          <div style="font-weight:700;">{{ t.type_code }} · {{ t.type_name }}</div>
-          <small>{{ t.description || 'No description' }}</small>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <h2>Versions</h2>
-      <div class="row">
-        <div>
-          <label>App Code</label>
-          <input v-model="filters.appCode" placeholder="billing">
-        </div>
-        <div>
-          <label>Env Code</label>
-          <input v-model="filters.envCode" placeholder="prod">
-        </div>
-      </div>
-      <div class="row">
-        <div>
-          <label>Type Code</label>
-          <input v-model="filters.typeCode" placeholder="mysql">
-        </div>
-        <div>
-          <label style="visibility:hidden;">btn</label>
-          <button class="secondary" @click="loadVersions">Refresh</button>
-        </div>
-      </div>
-      <div class="list">
-        <div v-for="v in versions" :key="v.version_id" class="card">
-          <div><span class="pill">{{ v.app_code }}</span><span class="pill">{{ v.env_code }}</span><span class="pill">{{ v.type_code }}</span></div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <strong>{{ v.version_no }}</strong>
-            <span class="tag" :class="v.status">{{ v.status }}</span>
-            <span v-if="v.is_current" class="tag published">current</span>
+      <!-- Environments -->
+      <div v-if="page==='envs'" class="panel">
+        <h2>环境管理</h2>
+        <div class="section-grid">
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">创建环境</h3>
+            <label>App Code</label><input v-model="forms.env.appCode" placeholder="billing">
+            <label>Env Code</label><input v-model="forms.env.envCode" placeholder="prod">
+            <label>Env 名称</label><input v-model="forms.env.envName" placeholder="生产环境">
+            <label>描述</label><textarea v-model="forms.env.description"></textarea>
+            <button class="cta" @click="createEnv">创建</button>
           </div>
-          <small>Effective: {{ v.effective_from || '—' }}</small><br>
-          <button @click="publish(v.version_id)">Publish</button>
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">环境列表</h3>
+            <div class="list">
+              <div class="card" v-for="e in data.envs" :key="e.env_id">
+                <div><strong>{{ e.app_code }}</strong> · <span class="pill">{{ e.env_code }}</span></div>
+                <small>{{ e.env_name }} · {{ e.description || '无描述' }}</small>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </section>
 
-    <section style="grid-column:1 / span 2;">
-      <h2>Fetch Current Config</h2>
-      <div class="row">
-        <div>
-          <label>App Code</label>
-          <input v-model="fetchForm.appCode" placeholder="billing">
-        </div>
-        <div>
-          <label>Env Code</label>
-          <input v-model="fetchForm.envCode" placeholder="prod">
+      <!-- Config types -->
+      <div v-if="page==='types'" class="panel">
+        <h2>配置类型管理</h2>
+        <div class="section-grid">
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">创建类型</h3>
+            <div class="row">
+              <div><label>App Code</label><input v-model="forms.type.appCode" placeholder="billing"></div>
+              <div><label>Env Code</label><input v-model="forms.type.envCode" placeholder="dev"></div>
+            </div>
+            <div class="row">
+              <div><label>Type Code</label><input v-model="forms.type.typeCode" placeholder="mysql"></div>
+              <div><label>Type 名称</label><input v-model="forms.type.typeName" placeholder="MySQL"></div>
+            </div>
+            <label>描述</label><textarea v-model="forms.type.description"></textarea>
+            <h4 style="margin:8px 0 4px;">字段模板</h4>
+            <div class="panel" style="margin:0; background:#0b1220; border:1px dashed var(--line);">
+              <div class="card" v-for="(f, idx) in forms.type.fields" :key="idx">
+                <div class="row">
+                  <div><label>Key</label><input v-model="f.fieldKey" placeholder="host"></div>
+                  <div><label>Name</label><input v-model="f.fieldName" placeholder="DB Host"></div>
+                </div>
+                <div class="row">
+                  <div><label>类型</label>
+                    <select v-model="f.fieldType">
+                      <option>string</option><option>int</option><option>boolean</option><option>json</option><option>secret</option>
+                    </select>
+                  </div>
+                  <div><label>必填</label>
+                    <select v-model="f.isRequired">
+                      <option :value="true">true</option>
+                      <option :value="false">false</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="row">
+                  <div><label>正则</label><input v-model="f.regexPattern" placeholder="^\\S+$"></div>
+                  <div><label>默认值</label><input v-model="f.defaultValue"></div>
+                </div>
+                <button class="ghost" @click="removeField(idx)">移除</button>
+              </div>
+              <button class="ghost" @click="addField">+ 添加字段</button>
+            </div>
+            <button class="cta" style="margin-top:10px;" @click="createType">创建类型</button>
+          </div>
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">类型列表</h3>
+            <div class="row">
+              <div><label>App 过滤</label><input v-model="filters.type.appCode"></div>
+              <div><label>Env 过滤</label><input v-model="filters.type.envCode"></div>
+            </div>
+            <button class="ghost" @click="loadTypes">刷新</button>
+            <div class="list">
+              <div class="card" v-for="t in data.types" :key="t.type_id">
+                <div><span class="pill">{{ t.app_code }}</span><span class="pill">{{ t.env_code }}</span></div>
+                <div><strong>{{ t.type_code }}</strong> · {{ t.type_name }}</div>
+                <small>{{ t.description || '无描述' }}</small>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="row">
-        <div>
-          <label>Type Code</label>
-          <input v-model="fetchForm.typeCode" placeholder="mysql">
-        </div>
-        <div>
-          <label>Version No (optional)</label>
-          <input v-model="fetchForm.versionNo" placeholder="specific version">
+
+      <!-- Fields -->
+      <div v-if="page==='fields'" class="panel">
+        <h2>配置类型字段管理</h2>
+        <div class="section-grid">
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">加载字段</h3>
+            <label>Type ID</label><input v-model="forms.field.typeId" placeholder="1">
+            <button class="ghost" @click="loadFields">加载</button>
+            <h3 style="margin:14px 0 8px;">新增字段</h3>
+            <label>Field Key</label><input v-model="forms.field.fieldKey">
+            <label>Field Name</label><input v-model="forms.field.fieldName">
+            <label>Field Type</label>
+            <select v-model="forms.field.fieldType">
+              <option>string</option><option>int</option><option>boolean</option><option>json</option><option>secret</option>
+            </select>
+            <label>必填</label>
+            <select v-model="forms.field.isRequired">
+              <option :value="true">true</option><option :value="false">false</option>
+            </select>
+            <label>正则</label><input v-model="forms.field.regexPattern">
+            <label>默认值</label><input v-model="forms.field.defaultValue">
+            <label>描述</label><textarea v-model="forms.field.description"></textarea>
+            <button class="cta" @click="createField">创建字段</button>
+          </div>
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">字段列表</h3>
+            <div class="list">
+              <div class="card" v-for="f in data.fields" :key="f.field_id">
+                <div><strong>{{ f.field_key }}</strong> · {{ f.field_name }}</div>
+                <small>{{ f.field_type }} | 必填: {{ f.is_required ? '是' : '否' }} | {{ f.description || '无描述' }}</small>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <div>
-        <button class="secondary" @click="fetchConfig">Fetch</button>
+
+      <!-- Versions -->
+      <div v-if="page==='versions'" class="panel">
+        <h2>版本管理</h2>
+        <div class="section-grid">
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">创建版本</h3>
+            <div class="row">
+              <div><label>App Code</label><input v-model="forms.version.appCode"></div>
+              <div><label>Env Code</label><input v-model="forms.version.envCode"></div>
+            </div>
+            <div class="row">
+              <div><label>Type Code</label><input v-model="forms.version.typeCode"></div>
+              <div><label>Version No</label><input v-model="forms.version.versionNo"></div>
+            </div>
+            <label>描述</label><textarea v-model="forms.version.description"></textarea>
+            <h4 style="margin:8px 0 4px;">版本字段值</h4>
+            <div class="panel" style="margin:0; background:#0b1220; border:1px dashed var(--line);">
+              <div class="card" v-for="(it, idx) in forms.version.items" :key="idx">
+                <div class="row">
+                  <div><label>Field Key</label><input v-model="it.fieldKey"></div>
+                  <div><label>格式</label>
+                    <select v-model="it.valueFormat">
+                      <option>plain</option><option>json</option><option>secret</option>
+                    </select>
+                  </div>
+                </div>
+                <label>值</label><textarea v-model="it.value"></textarea>
+                <button class="ghost" @click="removeItem(idx)">移除</button>
+              </div>
+              <button class="ghost" @click="addItem">+ 添加字段值</button>
+            </div>
+            <button class="cta" style="margin-top:10px;" @click="createVersion">创建版本</button>
+          </div>
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">版本列表</h3>
+            <div class="row">
+              <div><label>App</label><input v-model="filters.version.appCode"></div>
+              <div><label>Env</label><input v-model="filters.version.envCode"></div>
+              <div><label>Type</label><input v-model="filters.version.typeCode"></div>
+            </div>
+            <button class="ghost" @click="loadVersions">刷新</button>
+            <div class="list">
+              <div class="card" v-for="v in data.versions" :key="v.version_id">
+                <div><span class="pill">{{ v.app_code }}</span><span class="pill">{{ v.env_code }}</span><span class="pill">{{ v.type_code }}</span></div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <strong>{{ v.version_no }}</strong>
+                  <span class="tag" :class="v.status">{{ v.status }}</span>
+                  <span v-if="v.is_current" class="tag success">current</span>
+                </div>
+                <small>生效: {{ v.effective_from || '—' }}</small><br>
+                <button class="cta" @click="publishVersion(v.version_id)">发布</button>
+                <button class="ghost" @click="submitVersion(v.version_id)">提交</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <pre style="background:#0b1220; border:1px solid #1f2937; padding:12px; border-radius:10px; overflow:auto; min-height:120px;">{{ fetchedConfig }}</pre>
-    </section>
-  </main>
+
+      <!-- Data maintenance -->
+      <div v-if="page==='items'" class="panel">
+        <h2>数据维护（配置项）</h2>
+        <div class="section-grid">
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">加载版本项</h3>
+            <label>Version ID</label><input v-model="forms.items.versionId" placeholder="1">
+            <button class="ghost" @click="loadItems">加载项</button>
+          </div>
+          <div class="panel" style="margin:0;">
+            <h3 style="margin:0 0 8px;">维护项</h3>
+            <div class="panel" style="margin:0; background:#0b1220; border:1px dashed var(--line);">
+              <div class="card" v-for="(it, idx) in forms.items.items" :key="idx">
+                <div class="row">
+                  <div><label>Field Key</label><input v-model="it.fieldKey"></div>
+                  <div><label>格式</label>
+                    <select v-model="it.valueFormat">
+                      <option>plain</option><option>json</option><option>secret</option>
+                    </select>
+                  </div>
+                </div>
+                <label>值</label><textarea v-model="it.value"></textarea>
+                <label>启用</label>
+                <select v-model="it.isEnabled">
+                  <option :value="true">true</option><option :value="false">false</option>
+                </select>
+                <button class="ghost" @click="removeMaintenanceItem(idx)">移除</button>
+              </div>
+              <button class="ghost" @click="addMaintenanceItem">+ 添加项</button>
+            </div>
+            <button class="cta" style="margin-top:10px;" @click="upsertItems">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit logs -->
+      <div v-if="page==='audit'" class="panel">
+        <h2>审计日志</h2>
+        <button class="ghost" @click="loadAudit">刷新</button>
+        <table class="table">
+          <thead>
+            <tr><th>ID</th><th>Actor</th><th>Action</th><th>Target</th><th>Payload</th><th>时间</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="log in data.audit" :key="log.log_id">
+              <td>{{ log.log_id }}</td>
+              <td>{{ log.actor }}</td>
+              <td>{{ log.action }}</td>
+              <td>{{ log.target_type }}#{{ log.target_id }}</td>
+              <td><small>{{ pretty(log.payload) }}</small></td>
+              <td><small>{{ log.created_at }}</small></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Fetch config -->
+      <div v-if="page==='fetch'" class="panel">
+        <h2>配置查询</h2>
+        <div class="row">
+          <div><label>App Code</label><input v-model="forms.fetch.appCode"></div>
+          <div><label>Env Code</label><input v-model="forms.fetch.envCode"></div>
+        </div>
+        <div class="row">
+          <div><label>Type Code</label><input v-model="forms.fetch.typeCode"></div>
+          <div><label>Version No (可选)</label><input v-model="forms.fetch.versionNo"></div>
+        </div>
+        <button class="cta" @click="fetchConfig">查询</button>
+        <pre>{{ fetchedConfig }}</pre>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" v-if="toast">{{ toast }}</div>
 
   <script>
     const { createApp } = Vue;
@@ -256,20 +396,31 @@
       data() {
         return {
           apiBase: '/api',
-          newType: { appCode: 'billing', envCode: 'dev', typeCode: 'mysql', typeName: 'MySQL', description: '', fields: [] },
-          newVersion: { appCode: 'billing', envCode: 'dev', typeCode: 'mysql', versionNo: '2024.12.10-1', description: '', items: [] },
-          filters: { appCode: '', envCode: '', typeCode: '' },
-          fetchForm: { appCode: 'billing', envCode: 'dev', typeCode: 'mysql', versionNo: '' },
-          types: [],
-          versions: [],
-          fetchedConfig: ''
+          page: 'users',
+          toast: '',
+          data: { users: [], apps: [], envs: [], types: [], fields: [], versions: [], audit: [] },
+          fetchedConfig: '',
+          forms: {
+            user: { username: '', displayName: '', role: 'admin', email: '' },
+            app: { appCode: '', appName: '', description: '' },
+            env: { appCode: '', envCode: '', envName: '', description: '' },
+            type: { appCode: '', envCode: '', typeCode: '', typeName: '', description: '', fields: [] },
+            field: { typeId: '', fieldKey: '', fieldName: '', fieldType: 'string', isRequired: true, regexPattern: '', defaultValue: '', description: '' },
+            version: { appCode: '', envCode: '', typeCode: '', versionNo: '', description: '', items: [] },
+            items: { versionId: '', items: [] },
+            fetch: { appCode: '', envCode: '', typeCode: '', versionNo: '' }
+          },
+          filters: {
+            type: { appCode: '', envCode: '' },
+            version: { appCode: '', envCode: '', typeCode: '' }
+          }
         };
       },
       methods: {
         async api(path, options = {}) {
           const res = await fetch(`${this.apiBase}${path}`, {
             headers: { 'Content-Type': 'application/json', 'X-User': 'demo-user' },
-            ...options,
+            ...options
           });
           if (!res.ok) {
             const text = await res.text();
@@ -277,61 +428,130 @@
           }
           return res.json();
         },
-        addField() {
-          this.newType.fields.push({ fieldKey: '', fieldName: '', fieldType: 'string', isRequired: false, regexPattern: '', defaultValue: '' });
+        notify(msg) {
+          this.toast = msg;
+          setTimeout(() => (this.toast = ''), 2500);
         },
-        removeField(idx) { this.newType.fields.splice(idx, 1); },
-        async createType() {
-          try {
-            await this.api('/types', { method: 'POST', body: JSON.stringify(this.newType) });
-            alert('Type created');
-            this.loadTypes();
-          } catch (e) { alert(e.message); }
+        // Users
+        async loadUsers() {
+          this.data.users = await this.api('/users');
         },
-        addItem() {
-          this.newVersion.items.push({ fieldKey: '', value: '', valueFormat: 'plain' });
+        async createUser() {
+          await this.api('/users', { method: 'POST', body: JSON.stringify(this.forms.user) });
+          this.notify('用户创建成功');
+          this.forms.user.username = ''; this.forms.user.displayName = ''; this.forms.user.email = '';
+          this.loadUsers();
         },
-        removeItem(idx) { this.newVersion.items.splice(idx, 1); },
-        async createVersion() {
-          try {
-            await this.api('/versions', { method: 'POST', body: JSON.stringify(this.newVersion) });
-            alert('Version created');
-            this.loadVersions();
-          } catch (e) { alert(e.message); }
+        // Apps
+        async loadApps() {
+          this.data.apps = await this.api('/apps');
         },
-        async publish(id) {
-          try {
-            await this.api(`/versions/${id}/publish`, { method: 'POST', body: '{}' });
-            alert('Published');
-            this.loadVersions();
-          } catch (e) { alert(e.message); }
+        async createApp() {
+          await this.api('/apps', { method: 'POST', body: JSON.stringify(this.forms.app) });
+          this.notify('应用创建成功');
+          this.loadApps();
         },
+        // Envs
+        async loadEnvs() {
+          this.data.envs = await this.api('/envs');
+        },
+        async createEnv() {
+          await this.api('/envs', { method: 'POST', body: JSON.stringify(this.forms.env) });
+          this.notify('环境创建成功');
+          this.loadEnvs();
+        },
+        // Types
+        addField() { this.forms.type.fields.push({ fieldKey: '', fieldName: '', fieldType: 'string', isRequired: true, regexPattern: '', defaultValue: '' }); },
+        removeField(idx) { this.forms.type.fields.splice(idx, 1); },
         async loadTypes() {
           const qs = new URLSearchParams();
-          if (this.filters.appCode) qs.append('appCode', this.filters.appCode);
-          if (this.filters.envCode) qs.append('envCode', this.filters.envCode);
-          this.types = await this.api(`/types?${qs.toString()}`);
+          if (this.filters.type.appCode) qs.append('appCode', this.filters.type.appCode);
+          if (this.filters.type.envCode) qs.append('envCode', this.filters.type.envCode);
+          this.data.types = await this.api(`/types?${qs.toString()}`);
         },
+        async createType() {
+          await this.api('/types', { method: 'POST', body: JSON.stringify(this.forms.type) });
+          this.notify('类型创建成功');
+          this.loadTypes();
+        },
+        // Fields
+        async loadFields() {
+          if (!this.forms.field.typeId) return this.notify('请填写 typeId');
+          this.data.fields = await this.api(`/type-fields?typeId=${this.forms.field.typeId}`);
+        },
+        async createField() {
+          await this.api('/type-fields', { method: 'POST', body: JSON.stringify(this.forms.field) });
+          this.notify('字段创建成功');
+          this.loadFields();
+        },
+        // Versions
+        addItem() { this.forms.version.items.push({ fieldKey: '', value: '', valueFormat: 'plain' }); },
+        removeItem(idx) { this.forms.version.items.splice(idx, 1); },
         async loadVersions() {
           const qs = new URLSearchParams();
-          if (this.filters.appCode) qs.append('appCode', this.filters.appCode);
-          if (this.filters.envCode) qs.append('envCode', this.filters.envCode);
-          if (this.filters.typeCode) qs.append('typeCode', this.filters.typeCode);
-          this.versions = await this.api(`/versions?${qs.toString()}`);
+          if (this.filters.version.appCode) qs.append('appCode', this.filters.version.appCode);
+          if (this.filters.version.envCode) qs.append('envCode', this.filters.version.envCode);
+          if (this.filters.version.typeCode) qs.append('typeCode', this.filters.version.typeCode);
+          this.data.versions = await this.api(`/versions?${qs.toString()}`);
         },
+        async createVersion() {
+          await this.api('/versions', { method: 'POST', body: JSON.stringify(this.forms.version) });
+          this.notify('版本创建成功');
+          this.loadVersions();
+        },
+        async publishVersion(id) {
+          await this.api(`/versions/${id}/publish`, { method: 'POST', body: '{}' });
+          this.notify('已发布');
+          this.loadVersions();
+        },
+        async submitVersion(id) {
+          await this.api(`/versions/${id}/submit`, { method: 'POST', body: '{}' });
+          this.notify('已提交');
+          this.loadVersions();
+        },
+        // Items maintenance
+        addMaintenanceItem() { this.forms.items.items.push({ fieldKey: '', value: '', valueFormat: 'plain', isEnabled: true }); },
+        removeMaintenanceItem(idx) { this.forms.items.items.splice(idx, 1); },
+        async loadItems() {
+          if (!this.forms.items.versionId) return this.notify('请填写 versionId');
+          const rows = await this.api(`/items?versionId=${this.forms.items.versionId}`);
+          this.forms.items.items = rows.map(r => ({ fieldKey: r.field_key, value: r.field_value, valueFormat: r.value_format, isEnabled: !!r.is_enabled }));
+        },
+        async upsertItems() {
+          await this.api('/items/upsert', { method: 'POST', body: JSON.stringify(this.forms.items) });
+          this.notify('配置项已保存');
+          this.loadItems();
+        },
+        // Audit
+        async loadAudit() {
+          this.data.audit = await this.api('/audit?limit=100');
+        },
+        // Fetch config
         async fetchConfig() {
+          const qs = new URLSearchParams(this.forms.fetch);
           try {
-            const qs = new URLSearchParams(this.fetchForm);
             const data = await this.api(`/config?${qs.toString()}`);
             this.fetchedConfig = JSON.stringify(data, null, 2);
-          } catch (e) { this.fetchedConfig = e.message; }
+          } catch (e) {
+            this.fetchedConfig = e.message;
+          }
+        },
+        pretty(obj) {
+          if (obj === null || obj === undefined) return '';
+          if (typeof obj === 'string') return obj;
+          try { return JSON.stringify(obj); } catch (e) { return String(obj); }
         }
       },
       mounted() {
         this.addField();
         this.addItem();
+        this.addMaintenanceItem();
+        this.loadUsers();
+        this.loadApps();
+        this.loadEnvs();
         this.loadTypes();
         this.loadVersions();
+        this.loadAudit();
       }
     }).mount('#app');
   </script>
