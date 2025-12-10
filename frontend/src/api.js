@@ -1,0 +1,37 @@
+const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api';
+
+async function request(path, options = {}) {
+  const res = await fetch(`${apiBase}${path}`, {
+    headers: { 'Content-Type': 'application/json', 'X-User': 'demo', 'X-Role': 'admin' },
+    ...options
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+  return res.json();
+}
+
+export const api = {
+  // types
+  listTypes: (params = {}) => request(`/types?${new URLSearchParams(params)}`),
+  createType: (payload) => request('/types', { method: 'POST', body: JSON.stringify(payload) }),
+  updateType: (id, payload) => request(`/types/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteType: (id) => request(`/types/${id}`, { method: 'DELETE' }),
+  // versions
+  listVersions: (typeId) => request(`/types/${typeId}/versions`),
+  createVersion: (typeId, payload) => request(`/types/${typeId}/versions`, { method: 'POST', body: JSON.stringify(payload) }),
+  publishVersion: (id) => request(`/versions/${id}/publish`, { method: 'PATCH' }),
+  diffVersions: (a, b) => request(`/versions/${a}/diff/${b}`),
+  // fields
+  listFields: (versionId) => request(`/versions/${versionId}/fields`),
+  createField: (versionId, payload) => request(`/versions/${versionId}/fields`, { method: 'POST', body: JSON.stringify(payload) }),
+  // data
+  listData: (versionId) => request(`/versions/${versionId}/data`),
+  upsertData: (versionId, payload) => request(`/versions/${versionId}/data`, { method: 'POST', body: JSON.stringify(payload) }),
+  // config fetch
+  fetchConfig: (appCode, typeCode, key, env) => request(`/config/${appCode}/${typeCode}/${key}?env=${env || 'prod'}`),
+  fetchConfigList: (appCode, typeCode, env) => request(`/config/${appCode}/${typeCode}?env=${env || 'prod'}`),
+  // audit
+  audit: () => request('/audit')
+};

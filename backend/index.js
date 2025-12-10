@@ -1,7 +1,8 @@
 /**
- * Enterprise-ready lightweight parameter configuration service (Express + SQLite).
- * Run: cd backend && npm install && npm start
- * Serves both API under /api/* and static Vue app from ../frontend.
+ * Enterprise Config Center Backend (Express + SQLite)
+ * Features: ConfigType, ConfigField (per version), ConfigVersion lifecycle,
+ * ConfigData, diff, publish/rollback, audit, config fetch API.
+ * Auth model is simplified: pass X-User and X-Role (admin/appOwner/viewer) headers.
  */
 
 const path = require('path');
@@ -9,614 +10,395 @@ const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
 
-const ROOT = path.resolve(__dirname, '..');
-const FRONTEND_DIR = path.join(ROOT, 'frontend');
-const DB_PATH = path.join(__dirname, 'data.db');
-
-const app = express();
+const DB_PATH = path.join(__dirname, 'config-center.db');
 const db = new Database(DB_PATH);
+db.pragma('foreign_keys = ON');
 initSchema();
 
-app.use(express.json());
+const app = express();
 app.use(cors());
+app.use(express.json({ limit: '2mb' }));
 
-// --- Helpers ------------------------------------------------------------- //
+// --- Helpers -------------------------------------------------------------- //
+const now = () => new Date().toISOString();
+const isAdmin = (req) => (req.headers['x-role'] || '').toLowerCase() === 'admin';
 
-const nowIso = () => new Date().toISOString();
-
-function safeParse(text) {
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    return text;
+function requireRole(req, res, allowed) {
+  const role = (req.headers['x-role'] || '').toLowerCase();
+  if (!allowed.includes(role)) {
+    res.status(403).json({ error: 'forbidden' });
+    return false;
   }
+  return true;
+}
+
+function audit(actor, action, targetType, targetId, details) {
+  db.prepare(
+    `INSERT INTO audit_logs (actor, action, target_type, target_id, details, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(actor || 'unknown', action, targetType, targetId || null, JSON.stringify(details || {}), now());
 }
 
 function initSchema() {
   db.exec(`
-    PRAGMA foreign_keys = ON;
-    CREATE TABLE IF NOT EXISTS users (
-      user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
-      display_name TEXT,
-      role TEXT NOT NULL DEFAULT 'user',
-      email TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS applications (
-      app_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      app_code TEXT NOT NULL UNIQUE,
-      app_name TEXT,
-      description TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS environments (
-      env_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      env_code TEXT NOT NULL,
-      env_name TEXT,
-      app_id INTEGER NOT NULL,
-      description TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(app_id, env_code),
-      FOREIGN KEY(app_id) REFERENCES applications(app_id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS config_types (
-      type_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type_code TEXT NOT NULL,
-      type_name TEXT NOT NULL,
-      app_id INTEGER NOT NULL,
-      env_id INTEGER NOT NULL,
-      description TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(app_id, env_id, type_code),
-      FOREIGN KEY(app_id) REFERENCES applications(app_id) ON DELETE CASCADE,
-      FOREIGN KEY(env_id) REFERENCES environments(env_id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS config_type_fields (
-      field_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      field_key TEXT NOT NULL,
-      field_name TEXT NOT NULL,
-      field_type TEXT NOT NULL,
-      field_length INTEGER,
-      is_required INTEGER NOT NULL DEFAULT 0,
-      regex_pattern TEXT,
-      default_value TEXT,
-      enum_options TEXT,
-      description TEXT,
-      type_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(type_id, field_key),
-      FOREIGN KEY(type_id) REFERENCES config_types(type_id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS config_versions (
-      version_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      version_no TEXT NOT NULL,
-      app_id INTEGER NOT NULL,
-      env_id INTEGER NOT NULL,
-      type_id INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'draft',
-      is_current INTEGER NOT NULL DEFAULT 0,
-      effective_from TEXT,
-      effective_to TEXT,
-      description TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(type_id, version_no),
-      FOREIGN KEY(app_id) REFERENCES applications(app_id) ON DELETE CASCADE,
-      FOREIGN KEY(env_id) REFERENCES environments(env_id) ON DELETE CASCADE,
-      FOREIGN KEY(type_id) REFERENCES config_types(type_id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS config_items (
-      item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      version_id INTEGER NOT NULL,
-      field_id INTEGER NOT NULL,
-      field_key TEXT NOT NULL,
-      field_value TEXT NOT NULL,
-      value_format TEXT NOT NULL DEFAULT 'plain',
-      description TEXT,
-      is_enabled INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(version_id, field_id),
-      UNIQUE(version_id, field_key),
-      FOREIGN KEY(version_id) REFERENCES config_versions(version_id) ON DELETE CASCADE,
-      FOREIGN KEY(field_id) REFERENCES config_type_fields(field_id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS audit_logs (
-      log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-      actor TEXT NOT NULL,
-      action TEXT NOT NULL,
-      target_type TEXT NOT NULL,
-      target_id INTEGER,
-      payload TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer'
+  );
+  CREATE TABLE IF NOT EXISTS config_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type_code TEXT NOT NULL,
+    type_name TEXT NOT NULL,
+    app_code TEXT NOT NULL,
+    biz_domain TEXT,
+    env TEXT DEFAULT 'prod',
+    description TEXT,
+    enabled INTEGER DEFAULT 1,
+    sort_order INTEGER DEFAULT 0,
+    create_user TEXT,
+    create_time TEXT DEFAULT (datetime('now')),
+    update_user TEXT,
+    update_time TEXT DEFAULT (datetime('now')),
+    UNIQUE(app_code, type_code, env)
+  );
+  CREATE TABLE IF NOT EXISTS config_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type_id INTEGER NOT NULL,
+    version_no TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'DRAFT', -- DRAFT | PENDING_RELEASE | RELEASED | ARCHIVED
+    description TEXT,
+    create_user TEXT,
+    create_time TEXT DEFAULT (datetime('now')),
+    release_user TEXT,
+    release_time TEXT,
+    FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE,
+    UNIQUE(type_id, version_no)
+  );
+  CREATE TABLE IF NOT EXISTS config_fields (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type_id INTEGER NOT NULL,
+    version_id INTEGER NOT NULL,
+    field_code TEXT NOT NULL,
+    field_name TEXT NOT NULL,
+    data_type TEXT NOT NULL,
+    max_length INTEGER,
+    required INTEGER DEFAULT 0,
+    default_value TEXT,
+    validate_rule TEXT,
+    enum_options TEXT,
+    unique_key_part INTEGER DEFAULT 0,
+    sort_order INTEGER DEFAULT 0,
+    create_time TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE,
+    FOREIGN KEY (version_id) REFERENCES config_versions(id) ON DELETE CASCADE,
+    UNIQUE(version_id, field_code)
+  );
+  CREATE TABLE IF NOT EXISTS config_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type_id INTEGER NOT NULL,
+    version_id INTEGER NOT NULL,
+    key_value TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    status TEXT DEFAULT 'ENABLED',
+    create_user TEXT,
+    create_time TEXT DEFAULT (datetime('now')),
+    update_user TEXT,
+    update_time TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE,
+    FOREIGN KEY (version_id) REFERENCES config_versions(id) ON DELETE CASCADE,
+    UNIQUE(version_id, key_value)
+  );
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor TEXT,
+    action TEXT,
+    target_type TEXT,
+    target_id INTEGER,
+    details TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
   `);
 }
 
-function getOrCreateAppEnv(appCode, envCode, envName) {
-  const app = db.prepare(`SELECT app_id FROM applications WHERE app_code = ?`).get(appCode);
-  let appId = app?.app_id;
-  if (!appId) {
-    const info = db.prepare(`INSERT INTO applications (app_code, app_name) VALUES (?, ?)`).run(appCode, appCode);
-    appId = info.lastInsertRowid;
-  }
-  const env = db.prepare(`SELECT env_id FROM environments WHERE app_id = ? AND env_code = ?`).get(appId, envCode);
-  let envId = env?.env_id;
-  if (!envId) {
-    const info = db.prepare(`INSERT INTO environments (env_code, env_name, app_id) VALUES (?, ?, ?)`)
-      .run(envCode, envName || envCode, appId);
-    envId = info.lastInsertRowid;
-  }
-  return { appId, envId };
-}
-
-function recordAudit(actor, action, targetType, targetId, payload) {
-  db.prepare(
-    `INSERT INTO audit_logs (actor, action, target_type, target_id, payload) VALUES (?, ?, ?, ?, ?)`
-  ).run(actor, action, targetType, targetId, JSON.stringify(payload));
-}
-
-function conflictError(err) {
-  return String(err).includes('UNIQUE') ? 'Conflict: duplicate key' : String(err);
-}
-
-// --- API routes ---------------------------------------------------------- //
-
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: nowIso() });
-});
-
-// Users
-app.get('/api/users', (_req, res) => {
-  const rows = db
-    .prepare(`SELECT user_id, username, display_name, role, email, created_at FROM users ORDER BY username`)
-    .all();
-  res.json(rows);
-});
-
-app.post('/api/users', (req, res) => {
-  const body = req.body || {};
-  if (!body.username) return res.status(400).json({ error: 'username required' });
-  try {
-    const info = db
-      .prepare(`INSERT INTO users (username, display_name, role, email) VALUES (?, ?, ?, ?)`)
-      .run(body.username, body.displayName || body.username, body.role || 'user', body.email || null);
-    recordAudit(req.get('X-User') || 'system', 'create_user', 'user', info.lastInsertRowid, {
-      username: body.username,
-    });
-    res.status(201).json({ userId: info.lastInsertRowid });
-  } catch (err) {
-    res.status(409).json({ error: conflictError(err) });
-  }
-});
-
-app.patch('/api/users/:id', (req, res) => {
-  const userId = Number(req.params.id);
-  const { displayName, role, email } = req.body || {};
-  const info = db
-    .prepare(
-      `UPDATE users SET display_name = COALESCE(?, display_name), role = COALESCE(?, role), email = COALESCE(?, email), updated_at = ? WHERE user_id = ?`
-    )
-    .run(displayName ?? null, role ?? null, email ?? null, nowIso(), userId);
-  if (!info.changes) return res.status(404).json({ error: 'user not found' });
-  recordAudit(req.get('X-User') || 'system', 'update_user', 'user', userId, { displayName, role, email });
-  res.json({ userId });
-});
-
-app.delete('/api/users/:id', (req, res) => {
-  const userId = Number(req.params.id);
-  const info = db.prepare(`DELETE FROM users WHERE user_id = ?`).run(userId);
-  if (!info.changes) return res.status(404).json({ error: 'user not found' });
-  recordAudit(req.get('X-User') || 'system', 'delete_user', 'user', userId, {});
-  res.json({ userId });
-});
-
-// Applications
-app.get('/api/apps', (_req, res) => {
-  const rows = db
-    .prepare(`SELECT app_id, app_code, app_name, description FROM applications ORDER BY app_code`)
-    .all();
-  res.json(rows);
-});
-
-app.post('/api/apps', (req, res) => {
-  const { appCode, appName, description = '' } = req.body || {};
-  if (!appCode) return res.status(400).json({ error: 'appCode required' });
-  try {
-    const info = db
-      .prepare(`INSERT INTO applications (app_code, app_name, description) VALUES (?, ?, ?)`)
-      .run(appCode, appName || appCode, description);
-    recordAudit(req.get('X-User') || 'system', 'create_app', 'application', info.lastInsertRowid, {
-      appCode,
-    });
-    res.status(201).json({ appId: info.lastInsertRowid });
-  } catch (err) {
-    res.status(409).json({ error: conflictError(err) });
-  }
-});
-
-// Environments
-app.get('/api/envs', (req, res) => {
-  const { appCode } = req.query;
-  let sql = `
-    SELECT e.env_id, e.env_code, e.env_name, e.description, a.app_code
-    FROM environments e JOIN applications a ON a.app_id = e.app_id
-  `;
-  const args = [];
-  if (appCode) {
-    sql += ' WHERE a.app_code = ?';
-    args.push(appCode);
-  }
-  sql += ' ORDER BY a.app_code, e.env_code';
-  const rows = db.prepare(sql).all(...args);
-  res.json(rows);
-});
-
-app.post('/api/envs', (req, res) => {
-  const { appCode, envCode, envName, description = '' } = req.body || {};
-  if (!appCode || !envCode) return res.status(400).json({ error: 'appCode/envCode required' });
-  try {
-    const { appId } = getOrCreateAppEnv(appCode, envCode, envName);
-    db.prepare(
-      `UPDATE environments SET description = COALESCE(?, description) WHERE app_id = ? AND env_code = ?`
-    ).run(description, appId, envCode);
-    recordAudit(req.get('X-User') || 'system', 'create_env', 'environment', appId, { envCode });
-    const envRow = db.prepare(`SELECT env_id FROM environments WHERE app_id = ? AND env_code = ?`).get(appId, envCode);
-    res.status(201).json({ envId: envRow.env_id });
-  } catch (err) {
-    res.status(409).json({ error: conflictError(err) });
-  }
-});
-
-// Config types & fields
+// --- Config Types CRUD ---------------------------------------------------- //
 app.get('/api/types', (req, res) => {
-  const { appCode, envCode } = req.query;
-  let sql = `
-    SELECT ct.type_id, ct.type_code, ct.type_name, ct.description,
-           a.app_code, e.env_code
-    FROM config_types ct
-    JOIN applications a ON a.app_id = ct.app_id
-    JOIN environments e ON e.env_id = ct.env_id
-  `;
-  const clauses = [];
-  const args = [];
-  if (appCode) {
-    clauses.push('a.app_code = ?');
-    args.push(appCode);
-  }
-  if (envCode) {
-    clauses.push('e.env_code = ?');
-    args.push(envCode);
-  }
-  if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
-  sql += ' ORDER BY a.app_code, e.env_code, ct.type_code';
-  res.json(db.prepare(sql).all(...args));
+  const { appCode, env } = req.query;
+  let sql = `SELECT * FROM config_types WHERE 1=1`;
+  const params = [];
+  if (appCode) { sql += ` AND app_code = ?`; params.push(appCode); }
+  if (env) { sql += ` AND env = ?`; params.push(env); }
+  sql += ` ORDER BY sort_order, id DESC`;
+  res.json(db.prepare(sql).all(params));
 });
 
 app.post('/api/types', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const body = req.body || {};
-  const required = ['appCode', 'envCode', 'typeCode', 'typeName'];
-  if (required.some((k) => !body[k])) return res.status(400).json({ error: 'Missing required fields' });
-  const actor = req.get('X-User') || 'system';
-  const { appCode, envCode, typeCode, typeName, description = '', fields = [] } = body;
+  const stmt = db.prepare(`
+    INSERT INTO config_types (type_code, type_name, app_code, biz_domain, env, description, enabled, sort_order, create_user, update_user, update_time)
+    VALUES (@type_code, @type_name, @app_code, @biz_domain, @env, @description, @enabled, @sort_order, @actor, @actor, @now)
+  `);
   try {
-    const tx = db.transaction(() => {
-      const { appId, envId } = getOrCreateAppEnv(appCode, envCode);
-      const typeInfo = db
-        .prepare(
-          `INSERT INTO config_types (type_code, type_name, app_id, env_id, description) VALUES (?, ?, ?, ?, ?)`
-        )
-        .run(typeCode, typeName, appId, envId, description);
-      const typeId = typeInfo.lastInsertRowid;
-      const insertField = db.prepare(
-        `INSERT INTO config_type_fields
-          (field_key, field_name, field_type, field_length, is_required, regex_pattern, default_value, enum_options, description, type_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      for (const f of fields) {
-        insertField.run(
-          f.fieldKey,
-          f.fieldName || f.fieldKey,
-          f.fieldType || 'string',
-          f.fieldLength || null,
-          f.isRequired ? 1 : 0,
-          f.regexPattern || null,
-          f.defaultValue || null,
-          f.enumOptions || null,
-          f.description || '',
-          typeId
-        );
-      }
-      recordAudit(actor, 'create_type', 'config_type', typeId, { appCode, envCode, typeCode });
-      return typeId;
+    const info = stmt.run({
+      type_code: body.typeCode,
+      type_name: body.typeName,
+      app_code: body.appCode,
+      biz_domain: body.bizDomain || null,
+      env: body.env || 'prod',
+      description: body.description || '',
+      enabled: body.enabled ? 1 : 0,
+      sort_order: body.sortOrder || 0,
+      actor: req.headers['x-user'] || 'system',
+      now: now()
     });
-    res.status(201).json({ typeId: tx() });
+    audit(req.headers['x-user'], 'CREATE_TYPE', 'ConfigType', info.lastInsertRowid, body);
+    res.status(201).json({ id: info.lastInsertRowid });
   } catch (err) {
-    res.status(409).json({ error: conflictError(err) });
+    res.status(400).json({ error: err.message });
   }
 });
 
-app.get('/api/type-fields', (req, res) => {
-  const { typeId } = req.query;
-  if (!typeId) return res.status(400).json({ error: 'typeId required' });
-  const rows = db
-    .prepare(
-      `SELECT field_id, field_key, field_name, field_type, is_required, regex_pattern, default_value, enum_options, description
-       FROM config_type_fields WHERE type_id = ? ORDER BY field_key`
-    )
-    .all(Number(typeId));
-  res.json(rows);
-});
-
-app.post('/api/type-fields', (req, res) => {
+app.patch('/api/types/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
   const body = req.body || {};
-  const required = ['typeId', 'fieldKey', 'fieldName'];
-  if (required.some((k) => !body[k])) return res.status(400).json({ error: 'Missing required fields' });
-  try {
-    const info = db
-      .prepare(
-        `INSERT INTO config_type_fields
-          (field_key, field_name, field_type, field_length, is_required, regex_pattern, default_value, enum_options, description, type_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        body.fieldKey,
-        body.fieldName,
-        body.fieldType || 'string',
-        body.fieldLength || null,
-        body.isRequired ? 1 : 0,
-        body.regexPattern || null,
-        body.defaultValue || null,
-        body.enumOptions || null,
-        body.description || '',
-        body.typeId
-      );
-    recordAudit(req.get('X-User') || 'system', 'create_field', 'config_type_field', info.lastInsertRowid, {
-      fieldKey: body.fieldKey,
-    });
-    res.status(201).json({ fieldId: info.lastInsertRowid });
-  } catch (err) {
-    res.status(409).json({ error: conflictError(err) });
-  }
-});
-
-// Versions & items
-app.post('/api/versions', (req, res) => {
-  const body = req.body || {};
-  const required = ['appCode', 'envCode', 'typeCode', 'versionNo'];
-  if (required.some((k) => !body[k])) return res.status(400).json({ error: 'Missing required fields' });
-  const actor = req.get('X-User') || 'system';
-  const { appCode, envCode, typeCode, versionNo, description = '', effectiveFrom = null, items = [] } = body;
-  try {
-    const tx = db.transaction(() => {
-      const { appId, envId } = getOrCreateAppEnv(appCode, envCode);
-      const typeRow = db
-        .prepare(`SELECT type_id FROM config_types WHERE app_id = ? AND env_id = ? AND type_code = ?`)
-        .get(appId, envId, typeCode);
-      if (!typeRow) throw new Error('config type not found; create it first');
-      const typeId = typeRow.type_id;
-      const versionInfo = db
-        .prepare(
-          `INSERT INTO config_versions (version_no, app_id, env_id, type_id, status, is_current, effective_from, description)
-           VALUES (?, ?, ?, ?, 'draft', 0, ?, ?)`
-        )
-        .run(versionNo, appId, envId, typeId, effectiveFrom, description);
-      const versionId = versionInfo.lastInsertRowid;
-      const fieldRows = db.prepare(`SELECT field_id, field_key FROM config_type_fields WHERE type_id = ?`).all(typeId);
-      const fieldMap = Object.fromEntries(fieldRows.map((r) => [r.field_key, r.field_id]));
-      const insertItem = db.prepare(
-        `INSERT INTO config_items (version_id, field_id, field_key, field_value, value_format, description)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      );
-      for (const it of items) {
-        if (!fieldMap[it.fieldKey]) throw new Error(`fieldKey not defined: ${it.fieldKey}`);
-        insertItem.run(
-          versionId,
-          fieldMap[it.fieldKey],
-          it.fieldKey,
-          String(it.value ?? ''),
-          it.valueFormat || 'plain',
-          it.description || ''
-        );
-      }
-      recordAudit(actor, 'create_version', 'config_version', versionId, { appCode, envCode, typeCode, versionNo });
-      return versionId;
-    });
-    res.status(201).json({ versionId: tx() });
-  } catch (err) {
-    res.status(400).json({ error: conflictError(err) });
-  }
-});
-
-app.post('/api/versions/:id/submit', (req, res) => {
-  const versionId = Number(req.params.id);
-  const actor = req.get('X-User') || 'system';
-  try {
-    const tx = db.transaction(() => {
-      const row = db.prepare(`SELECT version_id FROM config_versions WHERE version_id = ?`).get(versionId);
-      if (!row) throw new Error('Version not found');
-      db.prepare(`UPDATE config_versions SET status = 'pending', updated_at = ? WHERE version_id = ?`).run(nowIso(), versionId);
-      recordAudit(actor, 'update_version_status', 'config_version', versionId, { status: 'pending' });
-    });
-    tx();
-    res.json({ versionId, status: 'pending' });
-  } catch (err) {
-    res.status(err.message.includes('not found') ? 404 : 400).json({ error: String(err) });
-  }
-});
-
-app.post('/api/versions/:id/publish', (req, res) => {
-  const versionId = Number(req.params.id);
-  const actor = req.get('X-User') || 'system';
-  try {
-    const tx = db.transaction(() => {
-      const row = db.prepare(`SELECT version_id, type_id, status FROM config_versions WHERE version_id = ?`).get(versionId);
-      if (!row) throw new Error('Version not found');
-      if (!['draft', 'pending'].includes(row.status)) throw new Error('Only draft/pending can be published');
-      const now = nowIso();
-      db.prepare(`UPDATE config_versions SET is_current = 0, effective_to = ? WHERE type_id = ? AND is_current = 1`).run(now, row.type_id);
-      db.prepare(
-        `UPDATE config_versions
-         SET status = 'published', is_current = 1, effective_from = COALESCE(effective_from, ?), updated_at = ?
-         WHERE version_id = ?`
-      ).run(now, now, versionId);
-      recordAudit(actor, 'publish_version', 'config_version', versionId, { publishedAt: now });
-    });
-    tx();
-    res.json({ versionId, status: 'published' });
-  } catch (err) {
-    res.status(err.message.includes('not found') ? 404 : 400).json({ error: String(err) });
-  }
-});
-
-app.get('/api/versions', (req, res) => {
-  const { appCode, envCode, typeCode } = req.query;
-  let sql = `
-    SELECT v.version_id, v.version_no, v.status, v.is_current,
-           v.effective_from, v.effective_to,
-           a.app_code, e.env_code, t.type_code
-    FROM config_versions v
-    JOIN applications a ON a.app_id = v.app_id
-    JOIN environments e ON e.env_id = v.env_id
-    JOIN config_types t ON t.type_id = v.type_id
-  `;
-  const clauses = [];
-  const args = [];
-  if (appCode) { clauses.push('a.app_code = ?'); args.push(appCode); }
-  if (envCode) { clauses.push('e.env_code = ?'); args.push(envCode); }
-  if (typeCode) { clauses.push('t.type_code = ?'); args.push(typeCode); }
-  if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
-  sql += ' ORDER BY v.created_at DESC';
-  res.json(db.prepare(sql).all(...args));
-});
-
-app.get('/api/items', (req, res) => {
-  const { versionId } = req.query;
-  if (!versionId) return res.status(400).json({ error: 'versionId required' });
-  const rows = db
-    .prepare(
-      `SELECT item_id, field_key, field_value, value_format, description, is_enabled
-       FROM config_items WHERE version_id = ? ORDER BY field_key`
-    )
-    .all(Number(versionId));
-  res.json(rows);
-});
-
-app.post('/api/items/upsert', (req, res) => {
-  const { versionId, items = [] } = req.body || {};
-  const actor = req.get('X-User') || 'system';
-  if (!versionId) return res.status(400).json({ error: 'versionId required' });
-  try {
-    const tx = db.transaction(() => {
-      const version = db.prepare(`SELECT type_id FROM config_versions WHERE version_id = ?`).get(versionId);
-      if (!version) throw new Error('Version not found');
-      const fields = db.prepare(`SELECT field_id, field_key FROM config_type_fields WHERE type_id = ?`).all(version.type_id);
-      const fieldMap = Object.fromEntries(fields.map((f) => [f.field_key, f.field_id]));
-      const upsert = db.prepare(
-        `INSERT INTO config_items (version_id, field_id, field_key, field_value, value_format, description, is_enabled)
-         VALUES (@version_id, @field_id, @field_key, @field_value, @value_format, @description, @is_enabled)
-         ON CONFLICT(version_id, field_key) DO UPDATE SET
-            field_value=excluded.field_value,
-            value_format=excluded.value_format,
-            description=excluded.description,
-            is_enabled=excluded.is_enabled,
-            updated_at=(datetime('now'))`
-      );
-      for (const item of items) {
-        if (!fieldMap[item.fieldKey]) throw new Error(`fieldKey not defined: ${item.fieldKey}`);
-        upsert.run({
-          version_id: versionId,
-          field_id: fieldMap[item.fieldKey],
-          field_key: item.fieldKey,
-          field_value: String(item.value ?? ''),
-          value_format: item.valueFormat || 'plain',
-          description: item.description || '',
-          is_enabled: item.isEnabled === false ? 0 : 1,
-        });
-      }
-      recordAudit(actor, 'maintain_items', 'config_items', versionId, { count: items.length });
-    });
-    tx();
-    res.json({ versionId, updated: items.length });
-  } catch (err) {
-    res.status(400).json({ error: String(err) });
-  }
-});
-
-app.get('/api/config', (req, res) => {
-  const { appCode, envCode, typeCode, versionNo } = req.query;
-  if (!appCode || !envCode || !typeCode) {
-    return res.status(400).json({ error: 'appCode/envCode/typeCode required' });
-  }
-  const typeRow = db
-    .prepare(
-      `SELECT t.type_id, a.app_id, e.env_id FROM config_types t
-       JOIN applications a ON a.app_id = t.app_id
-       JOIN environments e ON e.env_id = t.env_id
-       WHERE a.app_code = ? AND e.env_code = ? AND t.type_code = ?`
-    )
-    .get(appCode, envCode, typeCode);
-  if (!typeRow) return res.status(404).json({ error: 'Config type not found' });
-  const args = [typeRow.type_id];
-  let versionSql = `
-    SELECT version_id, version_no, status, effective_from, effective_to, is_current
-    FROM config_versions WHERE type_id = ?
-  `;
-  if (versionNo) {
-    versionSql += ' AND version_no = ?';
-    args.push(versionNo);
-  } else {
-    versionSql += ' AND is_current = 1';
-  }
-  versionSql += ' ORDER BY created_at DESC LIMIT 1';
-  const ver = db.prepare(versionSql).get(...args);
-  if (!ver) return res.status(404).json({ error: 'No version found' });
-  const items = db
-    .prepare(
-      `SELECT field_key, field_value, value_format, description FROM config_items WHERE version_id = ? ORDER BY field_key`
-    )
-    .all(ver.version_id);
-  res.json({
-    appCode,
-    envCode,
-    typeCode,
-    versionNo: ver.version_no,
-    status: ver.status,
-    effectiveFrom: ver.effective_from,
-    items,
+  const info = db.prepare(`
+    UPDATE config_types
+    SET type_name = COALESCE(@type_name, type_name),
+        description = COALESCE(@description, description),
+        enabled = COALESCE(@enabled, enabled),
+        sort_order = COALESCE(@sort_order, sort_order),
+        update_user = @actor,
+        update_time = @now
+    WHERE id = @id
+  `).run({
+    id,
+    type_name: body.typeName ?? null,
+    description: body.description ?? null,
+    enabled: body.enabled === undefined ? null : body.enabled ? 1 : 0,
+    sort_order: body.sortOrder ?? null,
+    actor: req.headers['x-user'] || 'system',
+    now: now()
   });
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'UPDATE_TYPE', 'ConfigType', id, body);
+  res.json({ id });
 });
 
-// Audit
+app.delete('/api/types/:id', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const info = db.prepare(`DELETE FROM config_types WHERE id = ?`).run(id);
+  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  audit(req.headers['x-user'], 'DELETE_TYPE', 'ConfigType', id, {});
+  res.json({ id });
+});
+
+// --- Versions ------------------------------------------------------------ //
+app.get('/api/types/:typeId/versions', (req, res) => {
+  const typeId = Number(req.params.typeId);
+  const rows = db.prepare(`SELECT * FROM config_versions WHERE type_id = ? ORDER BY id DESC`).all(typeId);
+  res.json(rows);
+});
+
+app.post('/api/types/:typeId/versions', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const typeId = Number(req.params.typeId);
+  const body = req.body || {};
+  // enforce single pending
+  const pending = db.prepare(`SELECT id FROM config_versions WHERE type_id = ? AND status = 'PENDING_RELEASE'`).get(typeId);
+  if (pending) return res.status(400).json({ error: 'Pending version already exists' });
+  const stmt = db.prepare(`
+    INSERT INTO config_versions (type_id, version_no, status, description, create_user, create_time)
+    VALUES (?, ?, 'PENDING_RELEASE', ?, ?, ?)
+  `);
+  const info = stmt.run(typeId, body.versionNo || String(Date.now()), body.description || '', req.headers['x-user'] || 'system', now());
+  audit(req.headers['x-user'], 'CREATE_VERSION', 'ConfigVersion', info.lastInsertRowid, body);
+  // Optional cloneFrom for rollback
+  if (body.cloneFromVersionId) {
+    cloneVersionData(typeId, body.cloneFromVersionId, info.lastInsertRowid, req.headers['x-user'] || 'system');
+  }
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+function cloneVersionData(typeId, fromVersionId, toVersionId, actor) {
+  const fields = db.prepare(`SELECT * FROM config_fields WHERE version_id = ?`).all(fromVersionId);
+  const data = db.prepare(`SELECT * FROM config_data WHERE version_id = ?`).all(fromVersionId);
+  const insertField = db.prepare(`
+    INSERT INTO config_fields (type_id, version_id, field_code, field_name, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order)
+    VALUES (@type_id, @version_id, @field_code, @field_name, @data_type, @max_length, @required, @default_value, @validate_rule, @enum_options, @unique_key_part, @sort_order)
+  `);
+  const insertData = db.prepare(`
+    INSERT INTO config_data (type_id, version_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
+    VALUES (@type_id, @version_id, @key_value, @data_json, @status, @create_user, @update_user, @create_time, @update_time)
+  `);
+  const tx = db.transaction(() => {
+    fields.forEach((f) => insertField.run({ ...f, id: undefined, version_id: toVersionId }));
+    data.forEach((d) => insertData.run({ ...d, id: undefined, version_id: toVersionId, create_user: actor, update_user: actor, create_time: now(), update_time: now() }));
+  });
+  tx();
+}
+
+app.patch('/api/versions/:id/publish', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const id = Number(req.params.id);
+  const version = db.prepare(`SELECT * FROM config_versions WHERE id = ?`).get(id);
+  if (!version) return res.status(404).json({ error: 'version not found' });
+  if (version.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only PENDING_RELEASE can be published' });
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE config_versions SET status = 'ARCHIVED' WHERE type_id = ? AND status = 'RELEASED'`).run(version.type_id);
+    db.prepare(`UPDATE config_versions SET status = 'RELEASED', release_user = ?, release_time = ? WHERE id = ?`).run(req.headers['x-user'] || 'system', now(), id);
+  });
+  tx();
+  audit(req.headers['x-user'], 'PUBLISH_VERSION', 'ConfigVersion', id, {});
+  res.json({ id, status: 'RELEASED' });
+});
+
+// Diff between versions
+app.get('/api/versions/:a/diff/:b', (req, res) => {
+  const a = Number(req.params.a);
+  const b = Number(req.params.b);
+  const fieldsA = db.prepare(`SELECT field_code, data_type, required, max_length, validate_rule, enum_options FROM config_fields WHERE version_id = ?`).all(a);
+  const fieldsB = db.prepare(`SELECT field_code, data_type, required, max_length, validate_rule, enum_options FROM config_fields WHERE version_id = ?`).all(b);
+  const dataA = db.prepare(`SELECT key_value, data_json FROM config_data WHERE version_id = ?`).all(a);
+  const dataB = db.prepare(`SELECT key_value, data_json FROM config_data WHERE version_id = ?`).all(b);
+  res.json({ fields: diffList(fieldsA, fieldsB, 'field_code'), data: diffList(dataA, dataB, 'key_value') });
+});
+
+function diffList(aList, bList, key) {
+  const mapA = new Map(aList.map((x) => [x[key], x]));
+  const mapB = new Map(bList.map((x) => [x[key], x]));
+  const added = [];
+  const removed = [];
+  const changed = [];
+  mapB.forEach((val, k) => { if (!mapA.has(k)) added.push(val); });
+  mapA.forEach((val, k) => { if (!mapB.has(k)) removed.push(val); });
+  mapA.forEach((val, k) => {
+    if (mapB.has(k) && JSON.stringify(val) !== JSON.stringify(mapB.get(k))) {
+      changed.push({ before: val, after: mapB.get(k) });
+    }
+  });
+  return { added, removed, changed };
+}
+
+// --- Fields -------------------------------------------------------------- //
+app.get('/api/versions/:versionId/fields', (req, res) => {
+  const versionId = Number(req.params.versionId);
+  const rows = db.prepare(`SELECT * FROM config_fields WHERE version_id = ? ORDER BY sort_order, id`).all(versionId);
+  res.json(rows);
+});
+
+app.post('/api/versions/:versionId/fields', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const versionId = Number(req.params.versionId);
+  const body = req.body || {};
+  const version = db.prepare(`SELECT status, type_id FROM config_versions WHERE id = ?`).get(versionId);
+  if (!version) return res.status(404).json({ error: 'version not found' });
+  if (version.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
+  const stmt = db.prepare(`
+    INSERT INTO config_fields (type_id, version_id, field_code, field_name, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  try {
+    const info = stmt.run(
+      version.type_id,
+      versionId,
+      body.fieldCode,
+      body.fieldName,
+      body.dataType || 'string',
+      body.maxLength || null,
+      body.required ? 1 : 0,
+      body.defaultValue || null,
+      body.validateRule || null,
+      body.enumOptions ? JSON.stringify(body.enumOptions) : null,
+      body.uniqueKeyPart ? 1 : 0,
+      body.sortOrder || 0
+    );
+    audit(req.headers['x-user'], 'CREATE_FIELD', 'ConfigField', info.lastInsertRowid, body);
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// --- Config Data --------------------------------------------------------- //
+app.get('/api/versions/:versionId/data', (req, res) => {
+  const versionId = Number(req.params.versionId);
+  const rows = db.prepare(`SELECT * FROM config_data WHERE version_id = ? ORDER BY id DESC`).all(versionId);
+  res.json(rows);
+});
+
+app.post('/api/versions/:versionId/data', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const versionId = Number(req.params.versionId);
+  const body = req.body || {};
+  const version = db.prepare(`SELECT status, type_id FROM config_versions WHERE id = ?`).get(versionId);
+  if (!version) return res.status(404).json({ error: 'version not found' });
+  if (version.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
+  const stmt = db.prepare(`
+    INSERT INTO config_data (type_id, version_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(version_id, key_value) DO UPDATE SET
+      data_json=excluded.data_json,
+      status=excluded.status,
+      update_user=excluded.update_user,
+      update_time=excluded.update_time
+  `);
+  stmt.run(
+    version.type_id,
+    versionId,
+    body.keyValue,
+    JSON.stringify(body.dataJson || {}),
+    body.status || 'ENABLED',
+    req.headers['x-user'] || 'system',
+    req.headers['x-user'] || 'system',
+    now(),
+    now()
+  );
+  audit(req.headers['x-user'], 'UPSERT_DATA', 'ConfigData', versionId, body);
+  res.json({ ok: true });
+});
+
+// --- Config Fetch API ---------------------------------------------------- //
+app.get('/api/config/:appCode/:typeCode/:key', (req, res) => {
+  const { appCode, typeCode, key } = req.params;
+  const env = req.query.env || 'prod';
+  const type = db.prepare(`SELECT id FROM config_types WHERE app_code = ? AND type_code = ? AND env = ?`).get(appCode, typeCode, env);
+  if (!type) return res.status(404).json({ error: 'type not found' });
+  const released = db.prepare(`SELECT id FROM config_versions WHERE type_id = ? AND status = 'RELEASED' ORDER BY release_time DESC LIMIT 1`).get(type.id);
+  if (!released) return res.status(404).json({ error: 'no released version' });
+  const row = db.prepare(`SELECT data_json, status FROM config_data WHERE version_id = ? AND key_value = ?`).get(released.id, key);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json({ key, data: JSON.parse(row.data_json), status: row.status });
+});
+
+app.get('/api/config/:appCode/:typeCode', (req, res) => {
+  const { appCode, typeCode } = req.params;
+  const env = req.query.env || 'prod';
+  const type = db.prepare(`SELECT id FROM config_types WHERE app_code = ? AND type_code = ? AND env = ?`).get(appCode, typeCode, env);
+  if (!type) return res.status(404).json({ error: 'type not found' });
+  const released = db.prepare(`SELECT id FROM config_versions WHERE type_id = ? AND status = 'RELEASED' ORDER BY release_time DESC LIMIT 1`).get(type.id);
+  if (!released) return res.status(404).json({ error: 'no released version' });
+  const rows = db.prepare(`SELECT key_value, data_json, status FROM config_data WHERE version_id = ?`).all(released.id);
+  res.json(rows.map((r) => ({ key: r.key_value, data: JSON.parse(r.data_json), status: r.status })));
+});
+
+// --- Audit --------------------------------------------------------------- //
 app.get('/api/audit', (req, res) => {
-  const limit = Number(req.query.limit) || 50;
-  const rows = db
-    .prepare(
-      `SELECT log_id, actor, action, target_type, target_id, payload, created_at
-       FROM audit_logs ORDER BY log_id DESC LIMIT ?`
-    )
-    .all(limit);
-  res.json(rows.map((r) => ({ ...r, payload: safeParse(r.payload) })));
+  const rows = db.prepare(`SELECT * FROM audit_logs ORDER BY id DESC LIMIT 100`).all();
+  res.json(rows.map((r) => ({ ...r, details: safeParse(r.details) })));
 });
 
-// --- Static files -------------------------------------------------------- //
+function safeParse(text) {
+  try { return JSON.parse(text); } catch (e) { return text; }
+}
 
-app.use('/', express.static(FRONTEND_DIR));
-app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api/')) return next();
-  res.sendFile(path.join(FRONTEND_DIR, 'index.html'));
-});
-
-// --- Server start -------------------------------------------------------- //
+// --- Static (serve frontend build if exists) ----------------------------- //
+const FRONT_DIST = path.join(__dirname, '..', 'frontend', 'dist');
+app.use(express.static(FRONT_DIST));
 
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
-  console.log(`Frontend served from ${FRONTEND_DIR}`);
+  console.log(`Config Center backend listening on http://localhost:${PORT}`);
 });

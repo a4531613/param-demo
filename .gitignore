@@ -1,8 +1,11 @@
 # Runtime artifacts
 backend/data.db
+backend/config-center.db
 backend/__pycache__/
 **/__pycache__/
 *.pyc
 node_modules/
 backend/node_modules/
-package-lock.json
+frontend/node_modules/
+frontend/dist/
+.DS_Store
