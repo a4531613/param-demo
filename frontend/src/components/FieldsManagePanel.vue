@@ -16,6 +16,7 @@
       <el-table-column prop="id" label="字段ID" width="90" />
       <el-table-column prop="field_code" label="字段Key" width="140" />
       <el-table-column prop="field_name" label="字段名称" />
+      <el-table-column prop="type_id" label="配置类型ID" width="110" />
       <el-table-column prop="data_type" label="类型" width="120" />
       <el-table-column prop="max_length" label="长度" width="80" />
       <el-table-column prop="required" label="必填" width="70">
@@ -53,8 +54,9 @@
           <el-option v-for="e in envs" :key="e.id" :label="`${e.env_name} (${e.env_code})`" :value="e.id" />
         </el-select>
       </el-form-item>
-      <el-form-item label="类型ID"><el-input-number v-model="modal.form.typeId" :min="1" /></el-form-item>
-      <el-form-item label="版本ID"><el-input-number v-model="modal.form.versionId" :min="1" /></el-form-item>
+      <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable>
+        <el-option v-for="t in types" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
+      </el-select></el-form-item>
       <el-form-item label="字段Key"><el-input v-model="modal.form.fieldCode" :disabled="!!modal.editId" /></el-form-item>
       <el-form-item label="字段名称"><el-input v-model="modal.form.fieldName" /></el-form-item>
       <el-form-item label="字段类型">
@@ -88,12 +90,13 @@ import { api } from '../api';
 
 const apps = reactive([]);
 const envs = reactive([]);
+const types = reactive([]);
 const rows = reactive([]);
 const filters = reactive({ appId: null, envId: null, keyword: '' });
 const modal = reactive({
   visible: false,
   editId: null,
-  form: { appId: null, envId: null, typeId: null, versionId: null, fieldCode: '', fieldName: '', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
+  form: { appId: null, envId: null, typeId: null, fieldCode: '', fieldName: '', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
 });
 
 const rowsFiltered = computed(() => {
@@ -109,6 +112,7 @@ const rowsFiltered = computed(() => {
 async function loadRefs() {
   apps.splice(0, apps.length, ...(await api.listApps()));
   envs.splice(0, envs.length, ...(await api.listEnvs()));
+  types.splice(0, types.length, ...(await api.listTypes()));
 }
 
 async function loadFields() {
@@ -126,7 +130,6 @@ function openModal(row) {
       appId: row.app_id,
       envId: row.env_id,
       typeId: row.type_id,
-      versionId: row.version_id,
       fieldCode: row.field_code,
       fieldName: row.field_name,
       dataType: row.data_type,
@@ -139,14 +142,14 @@ function openModal(row) {
     };
   } else {
     modal.editId = null;
-    modal.form = { appId: filters.appId || null, envId: filters.envId || null, typeId: null, versionId: null, fieldCode: '', fieldName: '', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' };
+    modal.form = { appId: filters.appId || null, envId: filters.envId || null, typeId: null, fieldCode: '', fieldName: '', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' };
   }
   modal.visible = true;
 }
 
 async function save() {
-  if (!modal.form.versionId || !modal.form.typeId || !modal.form.fieldCode || !modal.form.fieldName) {
-    return ElMessage.warning('请填写必填项（类型/版本/字段标识/名称）');
+  if (!modal.form.typeId || !modal.form.fieldCode || !modal.form.fieldName) {
+    return ElMessage.warning('请填写必填项（类型/字段标识/名称）');
   }
   const payload = { ...modal.form };
   if (payload.enumOptions) {

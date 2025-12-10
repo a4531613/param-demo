@@ -517,9 +517,14 @@ app.get('/api/fields', (req, res) => {
 app.post('/api/fields', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const b = req.body || {};
-  if (!b.versionId) return res.status(400).json({ error: 'versionId required' });
-  const version = db.prepare(`SELECT status, type_id FROM config_versions WHERE id = ?`).get(b.versionId);
-  if (!version) return res.status(404).json({ error: 'version not found' });
+  if (!b.versionId && !b.typeId) return res.status(400).json({ error: 'typeId or versionId required' });
+  let version;
+  if (b.versionId) {
+    version = db.prepare(`SELECT status, type_id, id FROM config_versions WHERE id = ?`).get(b.versionId);
+  } else {
+    version = db.prepare(`SELECT id, status, type_id FROM config_versions WHERE type_id = ? AND status = 'PENDING_RELEASE' ORDER BY id DESC LIMIT 1`).get(b.typeId);
+  }
+  if (!version) return res.status(404).json({ error: 'pending version not found for type' });
   if (version.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
   try {
     const info = db.prepare(`
