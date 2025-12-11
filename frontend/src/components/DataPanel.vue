@@ -5,6 +5,9 @@
         <el-select v-model="state.appId" placeholder="应用" style="width:200px;">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
+        <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
+          <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
+        </el-select>
         <div class="tag-group" v-if="envOptions.length">
           <span class="tag-label">环境</span>
           <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
@@ -17,9 +20,6 @@
             {{ `${t.type_name} (${t.type_code})` }}
           </el-check-tag>
         </div>
-        <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
-          <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
-        </el-select>
         <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion">新增配置</el-button>
         <el-button @click="downloadTemplate" :disabled="!state.versionId">下载模板</el-button>
         <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
@@ -148,18 +148,13 @@ async function load() {
   fields.value = await api.listFields(state.versionId);
 }
 
-function onTypeChange() {
-  state.versionId = null;
-  rows.value = [];
-  fields.value = [];
-  meta.value = null;
-}
-
 function onEnvSelect(id) {
   state.envId = id;
+  load();
 }
 function onTypeSelect(id) {
   state.typeId = id;
+  load();
 }
 
 function openModal(row) {
@@ -330,7 +325,7 @@ watch(
   () => state.envId,
   () => {
     ensureDefaults();
-    onTypeChange();
+    load();
   }
 );
 
@@ -338,7 +333,7 @@ watch(
   () => state.typeId,
   () => {
     ensureDefaults();
-    onTypeChange();
+    load();
   }
 );
 
@@ -347,6 +342,7 @@ watch(
   () => {
     if (!versionOptions.value.find((v) => v.id === state.versionId)) {
       state.versionId = versionOptions.value[0]?.id || null;
+      load();
     }
   }
 );
