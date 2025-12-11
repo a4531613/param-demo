@@ -411,66 +411,69 @@ app.post('/api/types/:typeId/versions', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const typeId = Number(req.params.typeId);
   const body = req.body || {};
-  // enforce single pending
-  const pending = db.prepare(`SELECT id FROM config_versions WHERE type_id = ? AND status = 'PENDING_RELEASE'`).get(typeId);
-  if (pending) return res.status(400).json({ error: 'Pending version already exists' });
   const stmt = db.prepare(`
     INSERT INTO config_versions (type_id, app_id, env_id, version_no, status, description, enabled, create_user, create_time, update_user, update_time)
     VALUES (?, ?, ?, ?, 'PENDING_RELEASE', ?, ?, ?, ?, ?, ?)
   `);
   // derive app/env from type
   const typeRow = db.prepare(`SELECT app_id, env_id FROM config_types WHERE id = ?`).get(typeId);
-  const info = stmt.run(
-    typeId,
-    typeRow?.app_id || null,
-    typeRow?.env_id || null,
-    body.versionNo || String(Date.now()),
-    body.description || '',
-    body.enabled === false ? 0 : 1,
-    req.headers['x-user'] || 'system',
-    now(),
-    req.headers['x-user'] || 'system',
-    now()
-  );
-  audit(req.headers['x-user'], 'CREATE_VERSION', 'ConfigVersion', info.lastInsertRowid, body);
-  // Optional cloneFrom for rollback
-  if (body.cloneFromVersionId) {
-    cloneVersionData(typeId, body.cloneFromVersionId, info.lastInsertRowid, req.headers['x-user'] || 'system');
+  try {
+    const info = stmt.run(
+      typeId,
+      typeRow?.app_id || null,
+      typeRow?.env_id || null,
+      body.versionNo || String(Date.now()),
+      body.description || '',
+      body.enabled === false ? 0 : 1,
+      req.headers['x-user'] || 'system',
+      now(),
+      req.headers['x-user'] || 'system',
+      now()
+    );
+    audit(req.headers['x-user'], 'CREATE_VERSION', 'ConfigVersion', info.lastInsertRowid, body);
+    // Optional cloneFrom for rollback
+    if (body.cloneFromVersionId) {
+      cloneVersionData(typeId, body.cloneFromVersionId, info.lastInsertRowid, req.headers['x-user'] || 'system');
+    }
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
-  res.status(201).json({ id: info.lastInsertRowid });
 });
 
 app.post('/api/versions', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const body = req.body || {};
-  const versionNo = body.versionNo || resolveTypeIdForApp(body.appId);
-  if (!versionNo) return res.status(400).json({ error: 'versionNo not found for app' });
-  // enforce single pending per type
-  const pending = db.prepare(`SELECT id FROM config_versions WHERE version_no = ?`).get(versionNo);
-  if (pending) return res.status(400).json({ error: 'Pending version already exists' });
+  const typeId = body.typeId || resolveTypeIdForApp(body.appId);
+  if (!typeId) return res.status(400).json({ error: 'config type not found for app' });
+  const versionNo = body.versionNo || String(Date.now());
   const stmt = db.prepare(`
     INSERT INTO config_versions (type_id, app_id, env_id, version_no, status, description, enabled, create_user, create_time, update_user, update_time)
     VALUES (?, ?, ?, ?, 'PENDING_RELEASE', ?, ?, ?, ?, ?, ?)
   `);
   const typeRow = db.prepare(`SELECT app_id, env_id FROM config_types WHERE id = ?`).get(typeId);
   if (!typeRow) return res.status(400).json({ error: 'config type not found' });
-  const info = stmt.run(
-    typeId,
-    typeRow?.app_id || body.appId || null,
-    typeRow?.env_id || null,
-    body.versionNo || String(Date.now()),
-    body.description || '',
-    body.enabled === false ? 0 : 1,
-    req.headers['x-user'] || 'system',
-    now(),
-    req.headers['x-user'] || 'system',
-    now()
-  );
-  audit(req.headers['x-user'], 'CREATE_VERSION', 'ConfigVersion', info.lastInsertRowid, body);
-  if (body.cloneFromVersionId) {
-    cloneVersionData(typeId, body.cloneFromVersionId, info.lastInsertRowid, req.headers['x-user'] || 'system');
+  try {
+    const info = stmt.run(
+      typeId,
+      typeRow?.app_id || body.appId || null,
+      typeRow?.env_id || null,
+      versionNo,
+      body.description || '',
+      body.enabled === false ? 0 : 1,
+      req.headers['x-user'] || 'system',
+      now(),
+      req.headers['x-user'] || 'system',
+      now()
+    );
+    audit(req.headers['x-user'], 'CREATE_VERSION', 'ConfigVersion', info.lastInsertRowid, body);
+    if (body.cloneFromVersionId) {
+      cloneVersionData(typeId, body.cloneFromVersionId, info.lastInsertRowid, req.headers['x-user'] || 'system');
+    }
+    res.status(201).json({ id: info.lastInsertRowid });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
-  res.status(201).json({ id: info.lastInsertRowid });
 });
 
 function cloneVersionData(typeId, fromVersionId, toVersionId, actor) {
