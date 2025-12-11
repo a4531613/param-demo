@@ -796,7 +796,7 @@ app.post('/api/versions/:versionId/data', (req, res) => {
   const body = req.body || {};
   const version = db.prepare(`SELECT status, type_id FROM config_versions WHERE id = ?`).get(versionId);
   if (!version) return res.status(404).json({ error: 'version not found' });
-  if (version.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
+  if (version.status !== 'RELEASED') return res.status(400).json({ error: 'only released version editable' });
   const stmt = db.prepare(`
     INSERT INTO config_data (type_id, version_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -826,7 +826,7 @@ app.delete('/api/data/:id', (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare(`SELECT cd.id, v.status FROM config_data cd JOIN config_versions v ON cd.version_id = v.id WHERE cd.id = ?`).get(id);
   if (!row) return res.status(404).json({ error: 'not found' });
-  if (row.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
+  if (row.status !== 'RELEASED') return res.status(400).json({ error: 'only released version editable' });
   const info = db.prepare(`DELETE FROM config_data WHERE id = ?`).run(id);
   if (!info.changes) return res.status(404).json({ error: 'not found' });
   audit(req.headers['x-user'], 'DELETE_DATA', 'ConfigData', id, {});
