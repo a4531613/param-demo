@@ -118,10 +118,22 @@ const modal = reactive({
   form: { appId: null, envId: null, typeId: null, fieldCode: '', fieldName: '', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
 });
 
-const envOptions = computed(() => envs.filter((e) => !filters.appId || e.app_id === filters.appId));
-const typeOptions = computed(() => types.filter((t) => !filters.appId || t.app_id === filters.appId));
+const envOptions = computed(() => envs.filter((e) => (!filters.appId || e.app_id === filters.appId)));
+const typeOptions = computed(() =>
+  types.filter(
+    (t) =>
+      (!filters.appId || t.app_id === filters.appId) &&
+      (!filters.envId || !t.env_id || t.env_id === filters.envId)
+  )
+);
 const modalEnvOptions = computed(() => envs.filter((e) => !modal.form.appId || e.app_id === modal.form.appId));
-const modalTypeOptions = computed(() => types.filter((t) => !modal.form.appId || t.app_id === modal.form.appId));
+const modalTypeOptions = computed(() =>
+  types.filter(
+    (t) =>
+      (!modal.form.appId || t.app_id === modal.form.appId) &&
+      (!modal.form.envId || !t.env_id || t.env_id === modal.form.envId)
+  )
+);
 
 const rowsFiltered = computed(() => {
   const kw = filters.keyword.toLowerCase();
@@ -237,6 +249,10 @@ watch(
 watch(
   () => filters.envId,
   async () => {
+    // cascade type with env
+    if (!typeOptions.value.find((t) => t.id === filters.typeId)) {
+      filters.typeId = typeOptions.value[0]?.id || null;
+    }
     await loadFields();
   }
 );
@@ -245,6 +261,20 @@ watch(
   () => filters.typeId,
   async () => {
     await loadFields();
+  }
+);
+
+watch(
+  () => modal.form.appId,
+  () => {
+    ensureModalDefaults();
+  }
+);
+
+watch(
+  () => modal.form.envId,
+  () => {
+    ensureModalDefaults();
   }
 );
 
