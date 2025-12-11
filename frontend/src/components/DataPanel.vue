@@ -109,6 +109,8 @@ const versionOptions = computed(() =>
       ['RELEASED', 'ARCHIVED'].includes(v.status)
   )
 );
+const selectedVersion = computed(() => versionOptions.value.find((v) => v.id === state.versionId) || null);
+const isArchivedVersion = computed(() => selectedVersion.value?.status === 'ARCHIVED');
 const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
 const statusLabel = (s) => statusLabelMap[s] || s;
 
@@ -135,6 +137,7 @@ function onTypeSelect(id) {
 
 function openModal() {
   if (!state.versionId) return ElMessage.warning('请选择版本');
+  if (isArchivedVersion.value) return ElMessage.warning('归档版本不可新增配置');
   modal.editId = null;
   modal.form = { keyValue: '', status: 'ENABLED', data: defaultData() };
   modal.visible = true;
