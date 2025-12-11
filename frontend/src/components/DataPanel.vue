@@ -121,6 +121,7 @@ const versionOptions = computed(() =>
   props.versions.filter(
     (v) =>
       (!state.appId || v.app_id === state.appId) &&
+      (!state.envId || v.env_id === state.envId || v.env_id == null) &&
       ['RELEASED', 'ARCHIVED'].includes(v.status)
   )
 );
@@ -140,6 +141,9 @@ const formatValue = (v) => {
 async function load() {
   if (!state.versionId) return;
   meta.value = versionOptions.value.find((v) => v.id === state.versionId) || null;
+  if (meta.value && meta.value.type_id !== state.typeId) {
+    state.typeId = meta.value.type_id;
+  }
   await loadFieldsForSelection();
   const list = await api.listData(state.versionId);
   rows.value = list.map((item) => ({
@@ -328,8 +332,8 @@ function ensureDefaults() {
   if (!envOptions.value.find((e) => e.id === state.envId)) {
     state.envId = envOptions.value[0]?.id || null;
   }
-  if (!typeOptions.value.find((t) => t.id === state.typeId)) {
-    state.typeId = typeOptions.value[0]?.id || null;
+  if (!typeOptions.value.find((t) => t.id === state.typeId) && typeOptions.value.length) {
+    state.typeId = typeOptions.value[0].id;
   }
   if (!versionOptions.value.find((v) => v.id === state.versionId)) {
     state.versionId = versionOptions.value[0]?.id || null;
