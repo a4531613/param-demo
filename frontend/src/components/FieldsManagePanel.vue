@@ -70,11 +70,11 @@
       </el-form-item>
       <el-form-item label="所属环境">
         <el-select v-model="modal.form.envId">
-          <el-option v-for="e in envs" :key="e.id" :label="`${e.env_name} (${e.env_code})`" :value="e.id" />
+          <el-option v-for="e in modalEnvOptions" :key="e.id" :label="`${e.env_name} (${e.env_code})`" :value="e.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable>
-        <el-option v-for="t in types" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
+        <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
       </el-select></el-form-item>
       <el-form-item label="字段Key"><el-input v-model="modal.form.fieldCode" :disabled="!!modal.editId" /></el-form-item>
       <el-form-item label="字段名称"><el-input v-model="modal.form.fieldName" /></el-form-item>
