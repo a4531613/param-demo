@@ -21,6 +21,10 @@
           <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
         </el-select>
         <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion">新增配置</el-button>
+        <el-button @click="downloadTemplate" :disabled="!state.versionId">下载模板</el-button>
+        <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
+        <input type="file" ref="importInput" style="display:none;" accept=".csv,text/csv" @change="handleImport" />
+        <el-button @click="triggerImport" :disabled="isArchivedVersion || !state.versionId">导入</el-button>
       </div>
       <div v-if="meta" class="meta">
         <el-tag>版本ID: {{ meta.id }}</el-tag>
@@ -101,6 +105,7 @@ const apps = ref([]);
 const envs = ref([]);
 const state = reactive({ appId: null, envId: null, typeId: null, versionId: null });
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '', status: 'ENABLED', data: {} } });
+const importInput = ref(null);
 
 const short = (text) => (text.length > 60 ? text.slice(0, 60) + '...' : text);
 
@@ -213,6 +218,83 @@ async function save() {
 async function remove(row) {
   await ElMessageBox.confirm('确认删除该记录？', '提示');
   await api.deleteData(row.id);
+  await load();
+}
+
+function csvToRows(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
+  if (!lines.length) return [];
+  const headers = parseCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const cols = parseCsvLine(line);
+    const obj = {};
+    headers.forEach((h, idx) => { obj[h] = cols[idx]; });
+    return obj;
+  });
+}
+
+function parseCsvLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { current += ch; }
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') { result.push(current); current = ''; }
+      else { current += ch; }
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+async function downloadText(filename, text) {
+  const blob = new Blob([text], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function downloadTemplate() {
+  if (!state.versionId) return;
+  const text = await api.exportTemplate(state.versionId);
+  await downloadText(`version_${state.versionId}_template.csv`, text);
+}
+
+async function downloadData() {
+  if (!state.versionId) return;
+  const text = await api.exportData(state.versionId);
+  await downloadText(`version_${state.versionId}_data.csv`, text);
+}
+
+function triggerImport() {
+  if (!state.versionId || isArchivedVersion.value) return;
+  importInput.value && importInput.value.click();
+}
+
+async function handleImport(e) {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  const text = await file.text();
+  const rows = csvToRows(text).map((r) => ({
+    ...r,
+    key_value: r.key_value || r.key,
+    status: r.status || 'ENABLED'
+  })).filter((r) => r.key_value);
+  if (!rows.length) return ElMessage.warning('导入文件无有效数据');
+  await api.importData(state.versionId, rows);
+  ElMessage.success(`已导入 ${rows.length} 条`);
   await load();
 }
 

@@ -48,6 +48,17 @@ export const api = {
   // data
   listData: (versionId) => request(`/versions/${versionId}/data`),
   upsertData: (versionId, payload) => request(`/versions/${versionId}/data`, { method: 'POST', body: JSON.stringify(payload) }),
+  exportData: async (versionId) => {
+    const res = await fetch(`${apiBase}/versions/${versionId}/data/export`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
+    if (!res.ok) throw new Error(await res.text());
+    return res.text();
+  },
+  exportTemplate: async (versionId) => {
+    const res = await fetch(`${apiBase}/versions/${versionId}/data/template`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
+    if (!res.ok) throw new Error(await res.text());
+    return res.text();
+  },
+  importData: (versionId, rows) => request(`/versions/${versionId}/data/import`, { method: 'POST', body: JSON.stringify({ rows }) }),
   deleteData: (id) => request(`/data/${id}`, { method: 'DELETE' }),
   // config fetch
   fetchConfig: (appCode, typeCode, key, env) => request(`/config/${appCode}/${typeCode}/${key}?env=${env || 'prod'}`),

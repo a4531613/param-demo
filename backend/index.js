@@ -821,6 +821,97 @@ app.post('/api/versions/:versionId/data', (req, res) => {
   res.json({ ok: true });
 });
 
+function csvEscape(val) {
+  const s = val == null ? '' : String(val);
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+app.get('/api/versions/:versionId/data/template', (req, res) => {
+  const versionId = Number(req.params.versionId);
+  const version = db.prepare(`SELECT * FROM config_versions WHERE id = ?`).get(versionId);
+  if (!version) return res.status(404).json({ error: 'version not found' });
+  const fields = db.prepare(`SELECT field_code FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(version.type_id);
+  const headers = ['key_value', ...fields.map((f) => f.field_code)];
+  const csv = `${headers.join(',')}\r\n`;
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="template_version_${versionId}.csv"`);
+  res.send(csv);
+});
+
+app.get('/api/versions/:versionId/data/export', (req, res) => {
+  const versionId = Number(req.params.versionId);
+  const version = db.prepare(`SELECT * FROM config_versions WHERE id = ?`).get(versionId);
+  if (!version) return res.status(404).json({ error: 'version not found' });
+  const fields = db.prepare(`SELECT field_code FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(version.type_id);
+  const headers = ['key_value', ...fields.map((f) => f.field_code)];
+  const rows = db.prepare(`SELECT key_value, data_json, status FROM config_data WHERE version_id = ? ORDER BY id`).all(versionId);
+  let csv = `${headers.join(',')}\r\n`;
+  rows.forEach((r) => {
+    const data = safeParse(r.data_json) || {};
+    const line = [
+      csvEscape(r.key_value),
+      ...fields.map((f) => csvEscape(data[f.field_code]))
+    ].join(',');
+    csv += `${line}\r\n`;
+  });
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="version_${versionId}_data.csv"`);
+  res.send(csv);
+});
+
+app.post('/api/versions/:versionId/data/import', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const versionId = Number(req.params.versionId);
+  const body = req.body || {};
+  const rows = Array.isArray(body.rows) ? body.rows : [];
+  const version = db.prepare(`SELECT status, type_id FROM config_versions WHERE id = ?`).get(versionId);
+  if (!version) return res.status(404).json({ error: 'version not found' });
+  if (version.status !== 'RELEASED') return res.status(400).json({ error: 'only released version editable' });
+  if (!rows.length) return res.status(400).json({ error: 'no rows' });
+  const fields = db.prepare(`SELECT field_code FROM config_fields WHERE type_id = ?`).all(version.type_id);
+  const fieldSet = new Set(fields.map((f) => f.field_code));
+  const upsert = db.prepare(`
+    INSERT INTO config_data (type_id, version_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
+    VALUES (@type_id, @version_id, @key_value, @data_json, @status, @actor, @actor, @now, @now)
+    ON CONFLICT(version_id, key_value) DO UPDATE SET
+      data_json=excluded.data_json,
+      status=excluded.status,
+      update_user=excluded.update_user,
+      update_time=excluded.update_time
+  `);
+  const actor = req.headers['x-user'] || 'system';
+  const nowVal = now();
+  const tx = db.transaction(() => {
+    rows.forEach((r) => {
+      const key = r.key_value || r.key;
+      if (!key) throw new Error('missing key_value');
+      const data = {};
+      fieldSet.forEach((fc) => {
+        if (r[fc] !== undefined) data[fc] = r[fc];
+      });
+      upsert.run({
+        type_id: version.type_id,
+        version_id: versionId,
+        key_value: key,
+        data_json: JSON.stringify(data),
+        status: r.status || 'ENABLED',
+        actor,
+        now: nowVal
+      });
+    });
+  });
+  try {
+    tx();
+    audit(actor, 'IMPORT_DATA', 'ConfigData', versionId, { count: rows.length });
+    res.json({ imported: rows.length });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.delete('/api/data/:id', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const id = Number(req.params.id);
