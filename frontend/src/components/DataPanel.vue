@@ -140,12 +140,12 @@ const formatValue = (v) => {
 async function load() {
   if (!state.versionId) return;
   meta.value = versionOptions.value.find((v) => v.id === state.versionId) || null;
+  await loadFieldsForSelection();
   const list = await api.listData(state.versionId);
   rows.value = list.map((item) => ({
     ...item,
     parsed: safeParse(item.data_json)
   }));
-  fields.value = await api.listFields(state.versionId);
 }
 
 function onEnvSelect(id) {
@@ -217,6 +217,18 @@ async function remove(row) {
   await load();
 }
 
+async function loadFieldsForSelection() {
+  const params = {};
+  if (state.appId) params.appId = state.appId;
+  if (state.envId) params.envId = state.envId;
+  if (state.typeId) params.typeId = state.typeId;
+  fields.value = await api.listFieldsAll(params);
+}
+
+function csvHeaders() {
+  return ['key_value', ...fields.value.map((f) => f.field_code), 'status'];
+}
+
 function csvToRows(text) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
   if (!lines.length) return [];
@@ -263,13 +275,23 @@ async function downloadText(filename, text) {
 
 async function downloadTemplate() {
   if (!state.versionId) return;
-  const text = await api.exportTemplate(state.versionId);
+  const headers = csvHeaders();
+  const text = `${headers.join(',')}\r\n`;
   await downloadText(`version_${state.versionId}_template.csv`, text);
 }
 
 async function downloadData() {
   if (!state.versionId) return;
-  const text = await api.exportData(state.versionId);
+  const headers = csvHeaders();
+  let text = `${headers.join(',')}\r\n`;
+  rows.value.forEach((r) => {
+    const data = r.parsed || {};
+    const line = [
+      r.key_value,
+      ...fields.value.map((f) => data[f.field_code] ?? '')
+    ].map(csvEscape).join(',');
+    text += `${line}\r\n`;
+  });
   await downloadText(`version_${state.versionId}_data.csv`, text);
 }
 
@@ -289,7 +311,14 @@ async function handleImport(e) {
     status: r.status || 'ENABLED'
   })).filter((r) => r.key_value);
   if (!rows.length) return ElMessage.warning('导入文件无有效数据');
-  await api.importData(state.versionId, rows);
+  // ensure only current-field columns sent
+  const fieldCodes = new Set(fields.value.map((f) => f.field_code));
+  const trimmed = rows.map((r) => {
+    const data = {};
+    fieldCodes.forEach((fc) => { if (r[fc] !== undefined) data[fc] = r[fc]; });
+    return { key_value: r.key_value, status: r.status, ...data };
+  });
+  await api.importData(state.versionId, trimmed);
   ElMessage.success(`已导入 ${rows.length} 条`);
   await load();
 }
