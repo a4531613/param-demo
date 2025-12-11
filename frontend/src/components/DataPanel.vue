@@ -39,9 +39,19 @@
       <el-table-column prop="create_time" label="创建时间" width="180" />
       <el-table-column prop="update_user" label="更新人" width="120" />
       <el-table-column prop="update_time" label="更新时间" width="180" />
-      <el-table-column label="内容">
+      <el-table-column
+        v-for="f in fields"
+        :key="f.field_code"
+        :label="f.field_name"
+        :min-width="120"
+      >
         <template #default="scope">
-          <el-tag type="info">{{ short(scope.row.data_json) }}</el-tag>
+          <el-tag type="info">{{ formatValue(scope.row.parsed?.[f.field_code]) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="内容" min-width="160">
+        <template #default="scope">
+          <el-tag type="info">{{ short(JSON.stringify(scope.row.parsed || {})) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="160">
@@ -113,11 +123,23 @@ const selectedVersion = computed(() => versionOptions.value.find((v) => v.id ===
 const isArchivedVersion = computed(() => selectedVersion.value?.status === 'ARCHIVED');
 const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
 const statusLabel = (s) => statusLabelMap[s] || s;
+const safeParse = (text) => {
+  try { return JSON.parse(text); } catch (e) { return {}; }
+};
+const formatValue = (v) => {
+  if (v === undefined || v === null || v === '') return '—';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+};
 
 async function load() {
   if (!state.versionId) return;
   meta.value = versionOptions.value.find((v) => v.id === state.versionId) || null;
-  rows.value = await api.listData(state.versionId);
+  const list = await api.listData(state.versionId);
+  rows.value = list.map((item) => ({
+    ...item,
+    parsed: safeParse(item.data_json)
+  }));
   fields.value = await api.listFields(state.versionId);
 }
 
@@ -139,8 +161,17 @@ function openModal(row) {
   if (!state.versionId) return ElMessage.warning('请选择版本');
   // 归档版本禁止新增，但允许读取已存在记录
   if (!row && isArchivedVersion.value) return ElMessage.warning('归档版本不可新增配置');
-  modal.editId = null;
-  modal.form = { keyValue: '', status: 'ENABLED', data: defaultData() };
+  if (row) {
+    modal.editId = row.id;
+    modal.form = {
+      keyValue: row.key_value,
+      status: row.status,
+      data: { ...defaultData(), ...(row.parsed || {}) }
+    };
+  } else {
+    modal.editId = null;
+    modal.form = { keyValue: '', status: 'ENABLED', data: defaultData() };
+  }
   modal.visible = true;
 }
 
