@@ -159,6 +159,18 @@ function initSchema() {
 
 }
 
+function nextTypeCode() {
+  const row = db.prepare(`
+    SELECT COALESCE(MAX(code_num), 0) + 1 AS next_code
+    FROM (
+      SELECT CAST(type_code AS INTEGER) AS code_num
+      FROM config_types
+      WHERE type_code GLOB '[0-9]*'
+    )
+  `).get();
+  return String(row?.next_code || 1);
+}
+
 // --- Applications CRUD --------------------------------------------------- //
 app.get('/api/apps', (_req, res) => {
   const rows = db.prepare(`SELECT * FROM applications ORDER BY id DESC`).all();
@@ -310,13 +322,17 @@ app.get('/api/types', (req, res) => {
 app.post('/api/types', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const body = req.body || {};
+  if (!body.appId || !body.envId) {
+    return res.status(400).json({ error: 'appId and envId are required' });
+  }
   const stmt = db.prepare(`
     INSERT INTO config_types (type_code, type_name, app_id, env_id, biz_domain, description, enabled, sort_order, create_user, update_user, update_time)
     VALUES (@type_code, @type_name, @app_id, @env_id, @biz_domain, @description, @enabled, @sort_order, @actor, @actor, @now)
   `);
-  try {
+  const tx = db.transaction(() => {
+    const typeCode = nextTypeCode();
     const info = stmt.run({
-      type_code: body.typeCode,
+      type_code: typeCode,
       type_name: body.typeName,
       app_id: body.appId || null,
       env_id: body.envId || null,
@@ -327,11 +343,19 @@ app.post('/api/types', (req, res) => {
       actor: req.headers['x-user'] || 'system',
       now: now()
     });
-    audit(req.headers['x-user'], 'CREATE_TYPE', 'ConfigType', info.lastInsertRowid, body);
-    res.status(201).json({ id: info.lastInsertRowid });
+    return { info, typeCode };
+  });
+  try {
+    const { info, typeCode } = tx();
+    audit(req.headers['x-user'], 'CREATE_TYPE', 'ConfigType', info.lastInsertRowid, { ...body, typeCode });
+    res.status(201).json({ id: info.lastInsertRowid, typeCode });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.get('/api/types/next-code', (_req, res) => {
+  res.json({ next: nextTypeCode() });
 });
 
 app.patch('/api/types/:id', (req, res) => {

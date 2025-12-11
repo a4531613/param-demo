@@ -25,6 +25,7 @@ export const api = {
   deleteEnv: (id) => request(`/envs/${id}`, { method: 'DELETE' }),
   // types
   listTypes: (params = {}) => request(`/types?${new URLSearchParams(params)}`),
+  nextTypeCode: () => request('/types/next-code'),
   createType: (payload) => request('/types', { method: 'POST', body: JSON.stringify(payload) }),
   updateType: (id, payload) => request(`/types/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteType: (id) => request(`/types/${id}`, { method: 'DELETE' }),

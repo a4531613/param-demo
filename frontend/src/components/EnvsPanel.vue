@@ -2,7 +2,7 @@
   <el-card>
     <template #header>
       <div class="toolbar">
-        <el-select v-model="filters.appId" placeholder="选择应用" style="width:220px;" clearable>
+        <el-select v-model="filters.appId" placeholder="选择应用" style="width:220px;">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
         <div>
@@ -53,7 +53,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive } from 'vue';
+import { computed, onMounted, reactive, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 
@@ -74,9 +74,16 @@ const rowsFiltered = computed(() => {
   });
 });
 
+function ensureAppDefault() {
+  if (!filters.appId && apps.length) {
+    filters.appId = apps[0].id;
+  }
+}
+
 async function loadApps() {
   const list = await api.listApps();
   apps.splice(0, apps.length, ...list);
+  ensureAppDefault();
 }
 async function loadEnvs() {
   const list = await api.listEnvs(filters.appId || undefined);
@@ -89,7 +96,7 @@ function openModal(row) {
     modal.form = { appId: row.app_id, envCode: row.env_code, envName: row.env_name, description: row.description || '', enabled: !!row.enabled };
   } else {
     modal.editId = null;
-    modal.form = { appId: filters.appId || null, envCode: '', envName: '', description: '', enabled: true };
+    modal.form = { appId: filters.appId || (apps[0] && apps[0].id) || null, envCode: '', envName: '', description: '', enabled: true };
   }
   modal.visible = true;
 }
@@ -115,6 +122,14 @@ onMounted(async () => {
   await loadApps();
   await loadEnvs();
 });
+
+watch(
+  () => filters.appId,
+  async () => {
+    ensureAppDefault();
+    await loadEnvs();
+  }
+);
 </script>
 
 <style scoped>
