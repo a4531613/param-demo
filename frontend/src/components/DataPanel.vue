@@ -20,7 +20,7 @@
         <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
           <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
         </el-select>
-        <el-button type="primary" @click="openModal()">新增配置</el-button>
+        <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion">新增配置</el-button>
       </div>
       <div v-if="meta" class="meta">
         <el-tag>版本ID: {{ meta.id }}</el-tag>
@@ -135,9 +135,10 @@ function onTypeSelect(id) {
   state.typeId = id;
 }
 
-function openModal() {
+function openModal(row) {
   if (!state.versionId) return ElMessage.warning('请选择版本');
-  if (isArchivedVersion.value) return ElMessage.warning('归档版本不可新增配置');
+  // 归档版本禁止新增，但允许读取已存在记录
+  if (!row && isArchivedVersion.value) return ElMessage.warning('归档版本不可新增配置');
   modal.editId = null;
   modal.form = { keyValue: '', status: 'ENABLED', data: defaultData() };
   modal.visible = true;
