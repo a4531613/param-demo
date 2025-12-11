@@ -21,6 +21,7 @@
           </el-check-tag>
         </div>
         <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
+        <el-button type="danger" @click="batchRemove" :disabled="!selected.length || isArchivedVersion">批量删除</el-button>
         <el-button @click="downloadTemplate" :disabled="!state.versionId">下载模板</el-button>
         <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
         <input type="file" ref="importInput" style="display:none;" accept=".csv,text/csv" @change="handleImport" />
@@ -35,7 +36,8 @@
         <el-tag>生效: {{ meta.effective_from || '—' }} ~ {{ meta.effective_to || '—' }}</el-tag>
       </div>
     </template>
-    <el-table :data="rows" border>
+    <el-table :data="rows" border @selection-change="onSelectionChange">
+      <el-table-column type="selection" width="50" />
       <el-table-column prop="id" label="数据ID" width="90" />
       <el-table-column prop="key_value" label="Key" width="200" />
       <el-table-column prop="status" label="状态" width="100" />
@@ -106,6 +108,7 @@ const envs = ref([]);
 const state = reactive({ appId: null, envId: null, typeId: null, versionId: null });
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '', status: 'ENABLED', data: {} } });
 const importInput = ref(null);
+const selected = ref([]);
 
 const short = (text) => (text.length > 60 ? text.slice(0, 60) + '...' : text);
 
@@ -216,6 +219,20 @@ async function remove(row) {
   await ElMessageBox.confirm('确认删除该记录？', '提示');
   await api.deleteData(row.id);
   await load();
+}
+
+async function batchRemove() {
+  if (!selected.value.length) return;
+  await ElMessageBox.confirm(`确认删除选中的 ${selected.value.length} 条记录？`, '提示');
+  for (const row of selected.value) {
+    await api.deleteData(row.id);
+  }
+  selected.value = [];
+  await load();
+}
+
+function onSelectionChange(list) {
+  selected.value = list || [];
 }
 
 async function loadFieldsForSelection() {
