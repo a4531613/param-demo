@@ -6,10 +6,9 @@
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
         <el-select v-model="filters.status" placeholder="状态" clearable style="width:140px;">
-          <el-option label="DRAFT" value="DRAFT" />
-          <el-option label="PENDING_RELEASE" value="PENDING_RELEASE" />
-          <el-option label="RELEASED" value="RELEASED" />
-          <el-option label="ARCHIVED" value="ARCHIVED" />
+          <el-option label="待发布" value="PENDING_RELEASE" />
+          <el-option label="已发布" value="RELEASED" />
+          <el-option label="已归档" value="ARCHIVED" />
         </el-select>
         <el-button type="primary" @click="openModal()">新增版本</el-button>
       </div>
@@ -19,7 +18,7 @@
       <el-table-column prop="version_no" label="版本号" width="140" />
       <el-table-column prop="app_code" label="应用" width="160" />
       <el-table-column prop="status" label="状态" width="140">
-        <template #default="s"><el-tag :type="tagType(s.row.status)">{{ s.row.status }}</el-tag></template>
+        <template #default="s"><el-tag :type="tagType(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template>
       </el-table-column>
       <el-table-column prop="enabled" label="启用" width="80">
         <template #default="s"><el-tag :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '是' : '否' }}</el-tag></template>
@@ -34,7 +33,9 @@
       <el-table-column label="操作" width="220">
         <template #default="scope">
           <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
-          <el-button link type="success" @click="publish(scope.row)" :disabled="scope.row.status !== 'PENDING_RELEASE'">发布</el-button>
+          <el-button link type="success" @click="setStatus(scope.row, 'RELEASED')" :disabled="!canRelease(scope.row)">发布</el-button>
+          <el-button link type="warning" @click="setStatus(scope.row, 'ARCHIVED')" :disabled="scope.row.status !== 'RELEASED'">归档</el-button>
+          <el-button link type="info" @click="setStatus(scope.row, 'PENDING_RELEASE')" :disabled="scope.row.status !== 'RELEASED'">待发布</el-button>
           <el-button link type="danger" @click="remove(scope.row)" :disabled="scope.row.status === 'RELEASED'">删除</el-button>
         </template>
       </el-table-column>
@@ -75,7 +76,10 @@ const modal = reactive({
   form: { appId: null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true }
 });
 
+const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
 const tagType = (s) => (s === 'RELEASED' ? 'success' : s === 'PENDING_RELEASE' ? 'warning' : s === 'ARCHIVED' ? 'info' : '');
+const statusLabel = (s) => statusLabelMap[s] || s;
+const canRelease = (row) => ['PENDING_RELEASE', 'ARCHIVED'].includes(row.status);
 
 async function loadRefs() {
   apps.splice(0, apps.length, ...(await api.listApps()));
@@ -132,9 +136,9 @@ async function save() {
   await loadVersions();
 }
 
-async function publish(row) {
-  await api.publishVersion(row.id);
-  ElMessage.success('已发布');
+async function setStatus(row, status) {
+  await api.updateVersion(row.id, { status });
+  ElMessage.success(`状态已更新为${statusLabel(status)}`);
   await loadVersions();
 }
 

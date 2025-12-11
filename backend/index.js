@@ -494,12 +494,23 @@ function cloneVersionData(typeId, fromVersionId, toVersionId, actor) {
   tx();
 }
 
+const versionAllowedStatuses = new Set(['PENDING_RELEASE', 'RELEASED', 'ARCHIVED']);
+function canTransitionStatus(current, target) {
+  if (current === target) return true;
+  if (current === 'PENDING_RELEASE' && target === 'RELEASED') return true;
+  if (current === 'RELEASED' && (target === 'ARCHIVED' || target === 'PENDING_RELEASE')) return true;
+  if (current === 'ARCHIVED' && target === 'RELEASED') return true;
+  return false;
+}
+
 app.patch('/api/versions/:id/publish', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const id = Number(req.params.id);
   const version = db.prepare(`SELECT * FROM config_versions WHERE id = ?`).get(id);
   if (!version) return res.status(404).json({ error: 'version not found' });
-  if (version.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only PENDING_RELEASE can be published' });
+  if (!['PENDING_RELEASE', 'ARCHIVED'].includes(version.status)) {
+    return res.status(400).json({ error: 'only PENDING_RELEASE or ARCHIVED can be published' });
+  }
   const tx = db.transaction(() => {
     db.prepare(`UPDATE config_versions SET status = 'ARCHIVED' WHERE type_id = ? AND status = 'RELEASED'`).run(version.type_id);
     db.prepare(`UPDATE config_versions SET status = 'RELEASED', release_user = ?, release_time = ? WHERE id = ?`).run(req.headers['x-user'] || 'system', now(), id);
@@ -534,9 +545,40 @@ app.patch('/api/versions/:id', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const id = Number(req.params.id);
   const b = req.body || {};
-  const version = db.prepare(`SELECT status FROM config_versions WHERE id = ?`).get(id);
+  const version = db.prepare(`SELECT id, status, type_id FROM config_versions WHERE id = ?`).get(id);
   if (!version) return res.status(404).json({ error: 'not found' });
-  if (version.status === 'RELEASED') return res.status(400).json({ error: 'released version immutable' });
+
+  let statusChanged = false;
+  if (b.status) {
+    const targetStatus = b.status;
+    if (!versionAllowedStatuses.has(targetStatus)) {
+      return res.status(400).json({ error: 'invalid status' });
+    }
+    if (!canTransitionStatus(version.status, targetStatus)) {
+      return res.status(400).json({ error: 'status transition not allowed' });
+    }
+    const tx = db.transaction(() => {
+      if (targetStatus === 'RELEASED') {
+        db.prepare(`UPDATE config_versions SET status = 'ARCHIVED' WHERE type_id = ? AND status = 'RELEASED' AND id <> ?`).run(version.type_id, id);
+        db.prepare(`UPDATE config_versions SET status = 'RELEASED', release_user = ?, release_time = ? WHERE id = ?`).run(
+          req.headers['x-user'] || 'system',
+          now(),
+          id
+        );
+      } else if (targetStatus === 'PENDING_RELEASE') {
+        db.prepare(`UPDATE config_versions SET status = 'PENDING_RELEASE', release_user = NULL, release_time = NULL WHERE id = ?`).run(id);
+      } else if (targetStatus === 'ARCHIVED') {
+        db.prepare(`UPDATE config_versions SET status = 'ARCHIVED', update_user = ?, update_time = ? WHERE id = ?`).run(
+          req.headers['x-user'] || 'system',
+          now(),
+          id
+        );
+      }
+    });
+    tx();
+    statusChanged = true;
+  }
+
   const info = db.prepare(`
     UPDATE config_versions
     SET version_no = COALESCE(@version_no, version_no),
@@ -557,7 +599,7 @@ app.patch('/api/versions/:id', (req, res) => {
     actor: req.headers['x-user'] || 'system',
     now: now()
   });
-  if (!info.changes) return res.status(404).json({ error: 'not found' });
+  if (!info.changes && !statusChanged) return res.status(404).json({ error: 'not found' });
   audit(req.headers['x-user'], 'UPDATE_VERSION', 'ConfigVersion', id, b);
   res.json({ id });
 });
