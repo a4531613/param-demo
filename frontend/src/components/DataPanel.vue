@@ -106,7 +106,6 @@ const versionOptions = computed(() =>
   props.versions.filter(
     (v) =>
       (!state.appId || v.app_id === state.appId) &&
-      (!state.typeId || v.type_id === state.typeId) &&
       (!state.envId || v.env_id === state.envId || v.env_id == null) &&
       ['RELEASED', 'ARCHIVED'].includes(v.status)
   )
