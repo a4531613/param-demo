@@ -540,9 +540,9 @@ function diffList(aList, bList, key) {
 }
 
 // --- Fields -------------------------------------------------------------- //
-app.get('/api/versions/:versionId/fields', (req, res) => {
-  const versionId = Number(req.params.versionId);
-  const rows = db.prepare(`SELECT * FROM config_fields WHERE version_id = ? ORDER BY sort_order, id`).all(versionId);
+app.get('/api/versions/:typeId/fields', (req, res) => {
+  const typeId = Number(req.params.typeId);
+  const rows = db.prepare(`SELECT * FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(typeId);
   res.json(rows);
 });
 

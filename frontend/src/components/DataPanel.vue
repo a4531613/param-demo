@@ -2,8 +2,11 @@
   <el-card>
     <template #header>
       <div class="toolbar">
-        <el-select v-model="state.versionId" placeholder="选择版本" style="width:260px;" @change="load">
-          <el-option v-for="v in versions" :key="v.id" :label="`${v.version_no} (${v.status})`" :value="v.id" />
+        <el-select v-model="state.typeId" placeholder="选择配置类型" style="width:240px;" @change="onTypeChange">
+          <el-option v-for="t in types" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
+        </el-select>
+        <el-select v-model="state.versionId" placeholder="选择版本" style="width:240px;" @change="load">
+          <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${v.status})`" :value="v.id" />
         </el-select>
         <el-button type="primary" @click="openModal()">新增配置</el-button>
       </div>
@@ -64,24 +67,33 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 
-const props = defineProps({ versions: { type: Array, default: () => [] } });
+const props = defineProps({ versions: { type: Array, default: () => [] }, types: { type: Array, default: () => [] } });
 const rows = ref([]);
 const fields = ref([]);
 const meta = ref(null);
-const state = reactive({ versionId: null });
+const state = reactive({ typeId: null, versionId: null });
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '', status: 'ENABLED', data: {} } });
 
 const short = (text) => (text.length > 60 ? text.slice(0, 60) + '...' : text);
 
+const versionOptions = computed(() => props.versions.filter((v) => !state.typeId || v.type_id === state.typeId));
+
 async function load() {
   if (!state.versionId) return;
-  meta.value = props.versions.find((v) => v.id === state.versionId) || null;
+  meta.value = versionOptions.value.find((v) => v.id === state.versionId) || null;
   rows.value = await api.listData(state.versionId);
   fields.value = await api.listFields(state.versionId);
+}
+
+function onTypeChange() {
+  state.versionId = null;
+  rows.value = [];
+  fields.value = [];
+  meta.value = null;
 }
 
 function openModal() {

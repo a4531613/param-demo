@@ -44,6 +44,7 @@ const active = ref('types');
 const types = ref([]);
 const versions = ref([]);
 const currentTypeId = ref(null);
+const currentVersionsFilterType = ref(null);
 
 const compMap = { apps: AppsPanel, envs: EnvsPanel, types: TypesPanel, versions: VersionsPanel, fieldsManage: FieldsManagePanel, data: DataPanel, diff: DiffPanel, audit: AuditPanel };
 const currentComp = computed(() => compMap[active.value] || TypesPanel);
@@ -52,10 +53,10 @@ async function loadTypes() {
   types.value = await api.listTypes();
 }
 async function loadVersions(typeId) {
-  const tId = typeId || currentTypeId.value || (types.value[0]?.id || null);
+  const tId = typeId || currentTypeId.value || null;
   currentTypeId.value = tId;
-  if (!tId) { versions.value = []; return; }
-  versions.value = await api.listVersions(tId);
+  const list = tId ? await api.listVersions(tId) : await api.listVersionsAll();
+  versions.value = list;
 }
 
 onMounted(async () => {
