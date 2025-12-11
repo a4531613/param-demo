@@ -91,12 +91,10 @@ function initSchema() {
   );
   CREATE TABLE IF NOT EXISTS config_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type_id INTEGER NOT NULL,
     version_no TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'DRAFT', -- DRAFT | PENDING_RELEASE | RELEASED | ARCHIVED
     description TEXT,
     app_id INTEGER,
-    env_id INTEGER,
     enabled INTEGER DEFAULT 1,
     effective_from TEXT,
     effective_to TEXT,
@@ -106,10 +104,8 @@ function initSchema() {
     release_time TEXT,
     update_user TEXT,
     update_time TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE,
     FOREIGN KEY (app_id) REFERENCES applications(id) ON DELETE SET NULL,
-    FOREIGN KEY (env_id) REFERENCES environments(id) ON DELETE SET NULL,
-    UNIQUE(type_id, version_no)
+    UNIQUE(version_no)
   );
   CREATE TABLE IF NOT EXISTS config_fields (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,6 +165,12 @@ function nextTypeCode() {
     )
   `).get();
   return String(row?.next_code || 1);
+}
+
+function resolveTypeIdForApp(appId) {
+  if (!appId) return null;
+  const row = db.prepare(`SELECT id FROM config_types WHERE app_id = ? ORDER BY sort_order, id LIMIT 1`).get(appId);
+  return row?.id || null;
 }
 
 // --- Applications CRUD --------------------------------------------------- //
@@ -432,6 +434,39 @@ app.post('/api/types/:typeId/versions', (req, res) => {
   );
   audit(req.headers['x-user'], 'CREATE_VERSION', 'ConfigVersion', info.lastInsertRowid, body);
   // Optional cloneFrom for rollback
+  if (body.cloneFromVersionId) {
+    cloneVersionData(typeId, body.cloneFromVersionId, info.lastInsertRowid, req.headers['x-user'] || 'system');
+  }
+  res.status(201).json({ id: info.lastInsertRowid });
+});
+
+app.post('/api/versions', (req, res) => {
+  if (!requireRole(req, res, ['admin', 'appowner'])) return;
+  const body = req.body || {};
+  const versionNo = body.versionNo || resolveTypeIdForApp(body.appId);
+  if (!versionNo) return res.status(400).json({ error: 'versionNo not found for app' });
+  // enforce single pending per type
+  const pending = db.prepare(`SELECT id FROM config_versions WHERE version_no = ?`).get(versionNo);
+  if (pending) return res.status(400).json({ error: 'Pending version already exists' });
+  const stmt = db.prepare(`
+    INSERT INTO config_versions (type_id, app_id, env_id, version_no, status, description, enabled, create_user, create_time, update_user, update_time)
+    VALUES (?, ?, ?, ?, 'PENDING_RELEASE', ?, ?, ?, ?, ?, ?)
+  `);
+  const typeRow = db.prepare(`SELECT app_id, env_id FROM config_types WHERE id = ?`).get(typeId);
+  if (!typeRow) return res.status(400).json({ error: 'config type not found' });
+  const info = stmt.run(
+    typeId,
+    typeRow?.app_id || body.appId || null,
+    typeRow?.env_id || null,
+    body.versionNo || String(Date.now()),
+    body.description || '',
+    body.enabled === false ? 0 : 1,
+    req.headers['x-user'] || 'system',
+    now(),
+    req.headers['x-user'] || 'system',
+    now()
+  );
+  audit(req.headers['x-user'], 'CREATE_VERSION', 'ConfigVersion', info.lastInsertRowid, body);
   if (body.cloneFromVersionId) {
     cloneVersionData(typeId, body.cloneFromVersionId, info.lastInsertRowid, req.headers['x-user'] || 'system');
   }

@@ -5,12 +5,6 @@
         <el-select v-model="filters.appId" placeholder="应用" clearable style="width:180px;">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
-        <el-select v-model="filters.envId" placeholder="环境" clearable style="width:180px;">
-          <el-option v-for="e in envs" :key="e.id" :label="`${e.env_name} (${e.env_code})`" :value="e.id" />
-        </el-select>
-        <el-select v-model="filters.typeId" placeholder="配置类型" clearable filterable style="width:220px;">
-          <el-option v-for="t in types" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
-        </el-select>
         <el-select v-model="filters.status" placeholder="状态" clearable style="width:140px;">
           <el-option label="DRAFT" value="DRAFT" />
           <el-option label="PENDING_RELEASE" value="PENDING_RELEASE" />
@@ -23,9 +17,7 @@
     <el-table :data="versions" border>
       <el-table-column prop="id" label="版本ID" width="90" />
       <el-table-column prop="version_no" label="版本号" width="140" />
-      <el-table-column prop="type_id" label="类型ID" width="90" />
-      <el-table-column prop="app_id" label="应用ID" width="90" />
-      <el-table-column prop="env_id" label="环境ID" width="90" />
+      <el-table-column prop="app_code" label="应用" width="160" />
       <el-table-column prop="status" label="状态" width="140">
         <template #default="s"><el-tag :type="tagType(s.row.status)">{{ s.row.status }}</el-tag></template>
       </el-table-column>
@@ -51,9 +43,9 @@
 
   <el-dialog v-model="modal.visible" :title="modal.editId ? '编辑版本' : '新增版本'" width="520px">
     <el-form :model="modal.form" label-width="120px">
-      <el-form-item label="配置类型">
-        <el-select v-model="modal.form.typeId" filterable>
-          <el-option v-for="t in types" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
+      <el-form-item label="应用">
+        <el-select v-model="modal.form.appId" filterable :disabled="!!modal.editId">
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="版本号"><el-input v-model="modal.form.versionNo" /></el-form-item>
@@ -70,36 +62,31 @@
 </template>
 
 <script setup>
-import { reactive, onMounted } from 'vue';
+import { reactive, onMounted, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 
-const props = defineProps({ types: { type: Array, default: () => [] } });
-
 const apps = reactive([]);
-const envs = reactive([]);
-const types = reactive([]);
 const versions = reactive([]);
-const filters = reactive({ appId: null, envId: null, typeId: null, status: '' });
+const filters = reactive({ appId: null, status: '' });
 const modal = reactive({
   visible: false,
   editId: null,
-  form: { typeId: null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true }
+  form: { appId: null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true }
 });
 
 const tagType = (s) => (s === 'RELEASED' ? 'success' : s === 'PENDING_RELEASE' ? 'warning' : s === 'ARCHIVED' ? 'info' : '');
 
 async function loadRefs() {
   apps.splice(0, apps.length, ...(await api.listApps()));
-  envs.splice(0, envs.length, ...(await api.listEnvs()));
-  types.splice(0, types.length, ...(await api.listTypes()));
+  if (!filters.appId && apps.length) {
+    filters.appId = apps[0].id;
+  }
 }
 
 async function loadVersions() {
   const params = {};
   if (filters.appId) params.appId = filters.appId;
-  if (filters.envId) params.envId = filters.envId;
-  if (filters.typeId) params.typeId = filters.typeId;
   if (filters.status) params.status = filters.status;
   const list = await api.listVersionsAll(params);
   versions.splice(0, versions.length, ...list);
@@ -109,7 +96,7 @@ function openModal(row) {
   if (row) {
     modal.editId = row.id;
     modal.form = {
-      typeId: row.type_id,
+      appId: row.app_id,
       versionNo: row.version_no,
       description: row.description || '',
       effectiveFrom: row.effective_from || '',
@@ -118,13 +105,13 @@ function openModal(row) {
     };
   } else {
     modal.editId = null;
-    modal.form = { typeId: filters.typeId || null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true };
+    modal.form = { appId: filters.appId || (apps[0] && apps[0].id) || null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true };
   }
   modal.visible = true;
 }
 
 async function save() {
-  if (!modal.form.typeId || !modal.form.versionNo) return ElMessage.warning('请填写类型与版本号');
+  if (!modal.form.appId || !modal.form.versionNo) return ElMessage.warning('请填写应用与版本号');
   if (modal.editId) {
     await api.updateVersion(modal.editId, {
       versionNo: modal.form.versionNo,
@@ -135,7 +122,7 @@ async function save() {
     });
   } else {
     await api.createVersionGlobal({
-      typeId: modal.form.typeId,
+      appId: modal.form.appId,
       versionNo: modal.form.versionNo,
       description: modal.form.description,
       enabled: modal.form.enabled
@@ -161,6 +148,20 @@ onMounted(async () => {
   await loadRefs();
   await loadVersions();
 });
+
+watch(
+  () => filters.appId,
+  async () => {
+    await loadVersions();
+  }
+);
+
+watch(
+  () => filters.status,
+  async () => {
+    await loadVersions();
+  }
+);
 </script>
 
 <style scoped>
