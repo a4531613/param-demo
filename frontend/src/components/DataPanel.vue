@@ -139,13 +139,10 @@ const formatValue = (v) => {
 };
 
 async function load() {
-  if (!state.versionId) return;
+  if (!state.versionId || !state.typeId) return;
   meta.value = versionOptions.value.find((v) => v.id === state.versionId) || null;
-  if (meta.value && meta.value.type_id !== state.typeId) {
-    state.typeId = meta.value.type_id;
-  }
   await loadFieldsForSelection();
-  const list = await api.listData(state.versionId);
+  const list = await api.listData(state.versionId, state.typeId);
   rows.value = list.map((item) => ({
     ...item,
     parsed: safeParse(item.data_json)
@@ -209,8 +206,8 @@ function parseEnum(text) {
 }
 
 async function save() {
-  if (!state.versionId) return;
-  await api.upsertData(state.versionId, { keyValue: modal.form.keyValue, status: modal.form.status, dataJson: modal.form.data });
+  if (!state.versionId || !state.typeId) return;
+  await api.upsertData(state.versionId, { typeId: state.typeId, keyValue: modal.form.keyValue, status: modal.form.status, dataJson: modal.form.data });
   modal.visible = false;
   await load();
 }
@@ -227,10 +224,6 @@ async function loadFieldsForSelection() {
   if (state.envId) params.envId = state.envId;
   if (state.typeId) params.typeId = state.typeId;
   fields.value = await api.listFieldsAll(params);
-}
-
-function csvHeaders() {
-  return ['key_value', ...fields.value.map((f) => f.field_code), 'status'];
 }
 
 function csvToRows(text) {
@@ -278,24 +271,14 @@ async function downloadText(filename, text) {
 }
 
 async function downloadTemplate() {
-  if (!state.versionId) return;
-  const headers = csvHeaders();
-  const text = `${headers.join(',')}\r\n`;
+  if (!state.versionId || !state.typeId) return;
+  const text = await api.exportTemplate(state.versionId, state.typeId);
   await downloadText(`version_${state.versionId}_template.csv`, text);
 }
 
 async function downloadData() {
-  if (!state.versionId) return;
-  const headers = csvHeaders();
-  let text = `${headers.join(',')}\r\n`;
-  rows.value.forEach((r) => {
-    const data = r.parsed || {};
-    const line = [
-      r.key_value,
-      ...fields.value.map((f) => data[f.field_code] ?? '')
-    ].map(csvEscape).join(',');
-    text += `${line}\r\n`;
-  });
+  if (!state.versionId || !state.typeId) return;
+  const text = await api.exportData(state.versionId, state.typeId);
   await downloadText(`version_${state.versionId}_data.csv`, text);
 }
 
@@ -322,8 +305,8 @@ async function handleImport(e) {
     fieldCodes.forEach((fc) => { if (r[fc] !== undefined) data[fc] = r[fc]; });
     return { key_value: r.key_value, status: r.status, ...data };
   });
-  await api.importData(state.versionId, trimmed);
-  ElMessage.success(`已导入 ${rows.length} 条`);
+  await api.importData(state.versionId, trimmed, state.typeId);
+  ElMessage.success(`已导入 ${trimmed.length} 条`);
   await load();
 }
 
