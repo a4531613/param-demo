@@ -2,11 +2,23 @@
   <el-card>
     <template #header>
       <div class="toolbar">
-        <el-select v-model="state.typeId" placeholder="选择配置类型" style="width:240px;" @change="onTypeChange">
-          <el-option v-for="t in types" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
+        <el-select v-model="state.appId" placeholder="应用" style="width:200px;">
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
-        <el-select v-model="state.versionId" placeholder="选择版本" style="width:240px;" @change="load">
-          <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${v.status})`" :value="v.id" />
+        <div class="tag-group" v-if="envOptions.length">
+          <span class="tag-label">环境</span>
+          <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
+            {{ `${e.env_name} (${e.env_code})` }}
+          </el-check-tag>
+        </div>
+        <div class="tag-group" v-if="typeOptions.length">
+          <span class="tag-label">配置类型</span>
+          <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
+            {{ `${t.type_name} (${t.type_code})` }}
+          </el-check-tag>
+        </div>
+        <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
+          <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
         </el-select>
         <el-button type="primary" @click="openModal()">新增配置</el-button>
       </div>
@@ -67,7 +79,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 
@@ -75,12 +87,32 @@ const props = defineProps({ versions: { type: Array, default: () => [] }, types:
 const rows = ref([]);
 const fields = ref([]);
 const meta = ref(null);
-const state = reactive({ typeId: null, versionId: null });
+const apps = ref([]);
+const envs = ref([]);
+const state = reactive({ appId: null, envId: null, typeId: null, versionId: null });
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '', status: 'ENABLED', data: {} } });
 
 const short = (text) => (text.length > 60 ? text.slice(0, 60) + '...' : text);
 
-const versionOptions = computed(() => props.versions.filter((v) => !state.typeId || v.type_id === state.typeId));
+const envOptions = computed(() => envs.value.filter((e) => !state.appId || e.app_id === state.appId));
+const typeOptions = computed(() =>
+  props.types.filter(
+    (t) =>
+      (!state.appId || t.app_id === state.appId) &&
+      (!state.envId || !t.env_id || t.env_id === state.envId)
+  )
+);
+const versionOptions = computed(() =>
+  props.versions.filter(
+    (v) =>
+      (!state.appId || v.app_id === state.appId) &&
+      (!state.typeId || v.type_id === state.typeId) &&
+      (!state.envId || v.env_id === state.envId || v.env_id == null) &&
+      ['RELEASED', 'ARCHIVED'].includes(v.status)
+  )
+);
+const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
+const statusLabel = (s) => statusLabelMap[s] || s;
 
 async function load() {
   if (!state.versionId) return;
@@ -94,6 +126,13 @@ function onTypeChange() {
   rows.value = [];
   fields.value = [];
   meta.value = null;
+}
+
+function onEnvSelect(id) {
+  state.envId = id;
+}
+function onTypeSelect(id) {
+  state.typeId = id;
 }
 
 function openModal() {
@@ -143,9 +182,66 @@ async function remove(row) {
   await api.deleteData(row.id);
   await load();
 }
+
+function ensureDefaults() {
+  if (!state.appId && apps.value.length) state.appId = apps.value[0].id;
+  if (!envOptions.value.find((e) => e.id === state.envId)) {
+    state.envId = envOptions.value[0]?.id || null;
+  }
+  if (!typeOptions.value.find((t) => t.id === state.typeId)) {
+    state.typeId = typeOptions.value[0]?.id || null;
+  }
+  if (!versionOptions.value.find((v) => v.id === state.versionId)) {
+    state.versionId = versionOptions.value[0]?.id || null;
+  }
+}
+
+async function loadRefs() {
+  apps.value = await api.listApps();
+  envs.value = await api.listEnvs(state.appId || undefined);
+  ensureDefaults();
+}
+
+watch(
+  () => state.appId,
+  async () => {
+    envs.value = await api.listEnvs(state.appId || undefined);
+    ensureDefaults();
+    await load();
+  }
+);
+
+watch(
+  () => state.envId,
+  () => {
+    ensureDefaults();
+    onTypeChange();
+  }
+);
+
+watch(
+  () => state.typeId,
+  () => {
+    ensureDefaults();
+    onTypeChange();
+  }
+);
+
+watch(
+  () => versionOptions.value,
+  () => {
+    if (!versionOptions.value.find((v) => v.id === state.versionId)) {
+      state.versionId = versionOptions.value[0]?.id || null;
+    }
+  }
+);
+
+loadRefs();
 </script>
 
 <style scoped>
-.toolbar { display:flex; justify-content: space-between; align-items:center; }
+.toolbar { display:flex; align-items:center; gap:8px; flex-wrap: wrap; }
 .meta { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+.tag-group { display:flex; align-items:center; gap:6px; }
+.tag-label { color:#6b7280; font-size:12px; }
 </style>
