@@ -20,7 +20,7 @@
             {{ `${t.type_name} (${t.type_code})` }}
           </el-check-tag>
         </div>
-        <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion">新增配置</el-button>
+        <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
         <el-button @click="downloadTemplate" :disabled="!state.versionId">下载模板</el-button>
         <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
         <input type="file" ref="importInput" style="display:none;" accept=".csv,text/csv" @change="handleImport" />
@@ -159,6 +159,7 @@ function onTypeSelect(id) {
 
 function openModal(row) {
   if (!state.versionId) return ElMessage.warning('请选择版本');
+  if (!state.envId || !state.typeId) return ElMessage.warning('请选择环境和配置类型');
   // 归档版本禁止新增，但允许读取已存在记录
   if (!row && isArchivedVersion.value) return ElMessage.warning('归档版本不可新增配置');
   if (row) {
