@@ -989,9 +989,13 @@ app.get('/api/export/pdf', (req, res) => {
     )
     .all(appRow.id, envRow.id);
 
-  const dataByTypeId = new Map();
-  types.forEach((t) => dataByTypeId.set(t.id, []));
-  const rows = db
+  const fieldsByTypeId = new Map();
+  types.forEach((t) => {
+    const fields = db.prepare(`SELECT field_code, field_name FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(t.id);
+    fieldsByTypeId.set(t.id, fields);
+  });
+  const dataByTypeId = new Map(types.map((t) => [t.id, []]));
+  const dataRows = db
     .prepare(
       `SELECT cd.type_id, cd.key_value, cd.data_json, cd.status
        FROM config_data cd
@@ -1000,7 +1004,7 @@ app.get('/api/export/pdf', (req, res) => {
        ORDER BY t.sort_order, t.id, cd.key_value`
     )
     .all(versionRow.id, envRow.id, appRow.id);
-  rows.forEach((r) => {
+  dataRows.forEach((r) => {
     if (!dataByTypeId.has(r.type_id)) dataByTypeId.set(r.type_id, []);
     dataByTypeId.get(r.type_id).push(r);
   });
@@ -1055,24 +1059,60 @@ app.get('/api/export/pdf', (req, res) => {
       doc.moveDown(0.8);
       return;
     }
-
-    list.forEach((r, idx) => {
-      ensureSpace(90);
-      const header = `${r.key_value || ''}`;
-      doc.fillColor(primary).fontSize(11).text(header);
-      doc.fillColor(muted).fontSize(9).text(`状态：${r.status || '-'}`);
+    const fields = fieldsByTypeId.get(t.id) || [];
+    const parsedRows = list.map((r) => {
       const obj = safeParse(r.data_json);
-      const pretty = typeof obj === 'string' ? String(obj) : JSON.stringify(obj || {}, null, 2);
-      doc.moveDown(0.2);
-      doc.fillColor(primary).fontSize(9).text(pretty, {
-        width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
-        lineGap: 2
-      });
-      doc.moveDown(0.35);
-      if (idx !== list.length - 1) {
-        doc.strokeColor(border).lineWidth(0.5).moveTo(doc.page.margins.left, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).stroke();
-        doc.moveDown(0.5);
+      return {
+        key_value: r.key_value,
+        status: r.status,
+        _obj: typeof obj === 'object' && obj ? obj : {}
+      };
+    });
+
+    const fixedColumns = [
+      { key: 'key_value', title: 'Key', width: 140 },
+      { key: 'status', title: '状态', width: 60 }
+    ];
+
+    const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const fixedWidth = fixedColumns.reduce((sum, c) => sum + c.width, 0);
+    const minDynamicWidth = 90;
+    const maxDynamicCols = Math.max(1, Math.floor((availableWidth - fixedWidth) / minDynamicWidth));
+    const chunks = [];
+    if (!fields.length) {
+      chunks.push([]);
+    } else {
+      for (let i = 0; i < fields.length; i += maxDynamicCols) chunks.push(fields.slice(i, i + maxDynamicCols));
+    }
+
+    chunks.forEach((chunk, idx) => {
+      ensureSpace(40);
+      if (chunks.length > 1) {
+        doc.fillColor(muted).fontSize(9).text(`字段分组：${idx + 1}/${chunks.length}`);
+        doc.moveDown(0.2);
       }
+
+      const dynamicCols = chunk.map((f) => ({
+        key: `f_${f.field_code}`,
+        title: f.field_name || f.field_code,
+        width: Math.max(minDynamicWidth, Math.floor((availableWidth - fixedWidth) / Math.max(1, chunk.length)))
+      }));
+      const tableRows = parsedRows.map((r) => {
+        const out = { key_value: r.key_value, status: r.status };
+        chunk.forEach((f) => {
+          out[`f_${f.field_code}`] = toCellText(r._obj[f.field_code]);
+        });
+        return out;
+      });
+
+      drawTable(doc, {
+        columns: [...fixedColumns, ...dynamicCols],
+        rows: tableRows,
+        fontSize: 8.5,
+        headerFontSize: 8.5,
+        minRowHeight: 18
+      });
+      doc.moveDown(0.8);
     });
 
     doc.moveDown(0.8);
@@ -1230,6 +1270,115 @@ app.get('/api/audit', (req, res) => {
 function safeParse(text) {
   try { return JSON.parse(text); } catch (e) { return text; }
 }
+
+function toCellText(v) {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+
+function truncateToWidth(doc, text, width) {
+  const s = String(text ?? '');
+  if (!s) return '';
+  if (doc.widthOfString(s) <= width) return s;
+  const ell = '…';
+  if (doc.widthOfString(ell) > width) return '';
+  let lo = 0;
+  let hi = s.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const sub = s.slice(0, mid) + ell;
+    if (doc.widthOfString(sub) <= width) lo = mid;
+    else hi = mid - 1;
+  }
+  return s.slice(0, lo) + ell;
+}
+
+function drawTable(doc, opts) {
+  const {
+    columns,
+    rows,
+    fontSize = 9,
+    headerFontSize = 9,
+    minRowHeight = 18,
+    paddingX = 4,
+    paddingY = 4,
+    borderColor = '#e5e7eb',
+    headerFill = '#f9fafb',
+    zebraFill = '#fcfcfd',
+    textColor = '#111827',
+    mutedColor = '#6b7280'
+  } = opts;
+
+  const pageBottom = () => doc.page.height - doc.page.margins.bottom;
+  const ensureSpace = (minSpace) => {
+    if (doc.y + minSpace > pageBottom()) doc.addPage();
+  };
+
+  const startX = doc.page.margins.left;
+  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const totalWidth = columns.reduce((sum, c) => sum + c.width, 0);
+  const scale = totalWidth > 0 ? Math.min(1, availableWidth / totalWidth) : 1;
+  const cols = columns.map((c) => ({ ...c, width: Math.max(30, Math.floor(c.width * scale)) }));
+
+  const drawHeader = () => {
+    ensureSpace(minRowHeight + 4);
+    const y = doc.y;
+    doc.save();
+    doc.fillColor(headerFill).rect(startX, y, availableWidth, minRowHeight).fill();
+    doc.restore();
+    doc.strokeColor(borderColor).lineWidth(1).rect(startX, y, availableWidth, minRowHeight).stroke();
+
+    let x = startX;
+    cols.forEach((c) => {
+      doc.strokeColor(borderColor).lineWidth(1).moveTo(x, y).lineTo(x, y + minRowHeight).stroke();
+      doc.fillColor(mutedColor).fontSize(headerFontSize).text(truncateToWidth(doc, c.title, c.width - paddingX * 2), x + paddingX, y + paddingY, {
+        width: c.width - paddingX * 2,
+        height: minRowHeight - paddingY * 2
+      });
+      x += c.width;
+    });
+    doc.strokeColor(borderColor).lineWidth(1).moveTo(startX + availableWidth, y).lineTo(startX + availableWidth, y + minRowHeight).stroke();
+    doc.y = y + minRowHeight;
+  };
+
+  const drawRow = (row, index) => {
+    const y = doc.y;
+    const rowHeight = minRowHeight;
+    ensureSpace(rowHeight + 4);
+
+    if (index % 2 === 1) {
+      doc.save();
+      doc.fillColor(zebraFill).rect(startX, y, availableWidth, rowHeight).fill();
+      doc.restore();
+    }
+    doc.strokeColor(borderColor).lineWidth(1).rect(startX, y, availableWidth, rowHeight).stroke();
+
+    let x = startX;
+    cols.forEach((c) => {
+      const val = row[c.key];
+      const txt = truncateToWidth(doc, toCellText(val), c.width - paddingX * 2);
+      doc.strokeColor(borderColor).lineWidth(1).moveTo(x, y).lineTo(x, y + rowHeight).stroke();
+      doc.fillColor(textColor).fontSize(fontSize).text(txt, x + paddingX, y + paddingY, {
+        width: c.width - paddingX * 2,
+        height: rowHeight - paddingY * 2
+      });
+      x += c.width;
+    });
+    doc.strokeColor(borderColor).lineWidth(1).moveTo(startX + availableWidth, y).lineTo(startX + availableWidth, y + rowHeight).stroke();
+    doc.y = y + rowHeight;
+  };
+
+  drawHeader();
+  rows.forEach((r, idx) => {
+    if (doc.y + minRowHeight * 1.2 > pageBottom()) {
+      doc.addPage();
+      drawHeader();
+    }
+    drawRow(r, idx);
+  });
+};
 
 function safeFilename(name) {
   const base = String(name || 'file')
