@@ -742,9 +742,8 @@ app.patch('/api/fields/:id', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const id = Number(req.params.id);
   const b = req.body || {};
-  const field = db.prepare(`SELECT cf.id, v.status FROM config_fields cf JOIN config_versions v ON cf.version_id = v.id WHERE cf.id = ?`).get(id);
+  const field = db.prepare(`SELECT id FROM config_fields WHERE id = ?`).get(id);
   if (!field) return res.status(404).json({ error: 'not found' });
-  if (field.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
   const info = db.prepare(`
     UPDATE config_fields
     SET field_name = COALESCE(@field_name, field_name),
