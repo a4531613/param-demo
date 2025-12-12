@@ -11,6 +11,32 @@ const { safeParseJson } = require('../utils/safeJson');
 function createDataRouter({ db }) {
   const router = express.Router();
 
+  function ensureKeyExistsAcrossEnvs({ versionId, appId, typeId, keyValue, actor, nowVal }) {
+    if (!appId) return;
+    const envIds = db.prepare(`SELECT id FROM environments WHERE app_id = ?`).all(appId).map((r) => r.id);
+    if (!envIds.length) return;
+    const insertMissing = db.prepare(`
+      INSERT OR IGNORE INTO config_data (type_id, version_id, env_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
+      VALUES (@type_id, @version_id, @env_id, @key_value, @data_json, @status, @actor, @actor, @now, @now)
+    `);
+
+    const tx = db.transaction(() => {
+      envIds.forEach((envId) => {
+        insertMissing.run({
+          type_id: typeId,
+          version_id: versionId,
+          env_id: envId,
+          key_value: keyValue,
+          data_json: JSON.stringify({}),
+          status: 'DISABLED',
+          actor,
+          now: nowVal
+        });
+      });
+    });
+    tx();
+  }
+
   router.get(
     '/versions/:versionId/data',
     wrap((req, res) => {
@@ -78,6 +104,15 @@ function createDataRouter({ db }) {
         nowIso(),
         nowIso()
       );
+
+      ensureKeyExistsAcrossEnvs({
+        versionId,
+        appId: version.app_id ?? null,
+        typeId: body.typeId,
+        keyValue: body.keyValue,
+        actor,
+        nowVal: nowIso()
+      });
       audit(db, actor, 'UPSERT_DATA', 'ConfigData', versionId, body);
       res.json({ ok: true });
     })
@@ -182,11 +217,49 @@ function createDataRouter({ db }) {
             actor,
             now: nowVal
           });
+
+          ensureKeyExistsAcrossEnvs({
+            versionId,
+            appId: version.app_id ?? null,
+            typeId,
+            keyValue: key,
+            actor,
+            nowVal
+          });
         });
       });
       tx();
       audit(db, actor, 'IMPORT_DATA', 'ConfigData', versionId, { count: rows.length });
       res.json({ imported: rows.length });
+    })
+  );
+
+  router.delete(
+    '/versions/:versionId/data/by-key',
+    wrap((req, res) => {
+      requireRole(req, ['admin', 'appowner']);
+      const versionId = toInt(req.params.versionId, 'versionId');
+      const typeId = toInt(req.query.typeId, 'typeId');
+      const keyValue = String(req.query.keyValue || '').trim();
+      const actor = getActor(req);
+      const nowVal = nowIso();
+
+      if (!keyValue) throw new HttpError(400, 'keyValue required');
+
+      const version = db.prepare(`SELECT status, app_id FROM config_versions WHERE id = ?`).get(versionId);
+      if (!version) throw new HttpError(404, 'version not found');
+      if (version.status !== 'RELEASED') throw new HttpError(400, 'only released version editable');
+
+      const typeRow = db.prepare(`SELECT id, app_id FROM config_types WHERE id = ?`).get(typeId);
+      if (!typeRow) throw new HttpError(404, 'type not found');
+      if (typeRow.app_id && version.app_id && typeRow.app_id !== version.app_id) throw new HttpError(400, 'type not belong to app');
+
+      const info = db
+        .prepare(`DELETE FROM config_data WHERE version_id = ? AND type_id = ? AND key_value = ?`)
+        .run(versionId, typeId, keyValue);
+
+      audit(db, actor, 'DELETE_DATA_BY_KEY', 'ConfigData', versionId, { typeId, keyValue, deleted: info.changes, now: nowVal });
+      res.json({ ok: true, deleted: info.changes });
     })
   );
 
@@ -212,4 +285,3 @@ function createDataRouter({ db }) {
 }
 
 module.exports = { createDataRouter };
-

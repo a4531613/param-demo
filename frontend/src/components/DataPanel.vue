@@ -1009,13 +1009,7 @@ async function deleteAcrossEnvs() {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   if (!modal.form.keyValue) return;
   await confirmAction('确认删除该Key在所有环境的数据？', '提示');
-  const deletes = modal.envForms
-    .map((ef) => ef.recordId)
-    .filter(Boolean)
-    .map((id) => api.deleteData(id));
-  if (deletes.length) {
-    await Promise.all(deletes);
-  }
+  await api.deleteDataByKey(state.versionId, state.typeId, modal.form.keyValue);
   modal.visible = false;
   await load();
 }
@@ -1023,7 +1017,7 @@ async function deleteAcrossEnvs() {
 async function remove(row) {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   await confirmAction('确认删除该记录？', '提示');
-  await api.deleteData(row.id);
+  await api.deleteDataByKey(state.versionId, state.typeId, row.key_value);
   await load();
 }
 
@@ -1032,9 +1026,8 @@ async function batchRemove() {
   if (!selected.value.length) return;
   await confirmAction(`确认删除选中的 ${selected.value.length} 条记录？`, '提示');
   const keysToDelete = [...new Set(selected.value.map((r) => r.key_value))];
-  const ids = await collectIdsAcrossEnvs(keysToDelete);
-  for (const id of ids) {
-    await api.deleteData(id);
+  for (const keyValue of keysToDelete) {
+    await api.deleteDataByKey(state.versionId, state.typeId, keyValue);
   }
   selectedIds.value = [];
   await load();
