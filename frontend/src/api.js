@@ -46,10 +46,10 @@ export const api = {
   updateField: (id, payload) => request(`/fields/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteField: (id) => request(`/fields/${id}`, { method: 'DELETE' }),
   // data
-  listData: (versionId, typeId) => request(`/versions/${versionId}/data?${new URLSearchParams({ typeId })}`),
+  listData: (versionId, typeId, envId) => request(`/versions/${versionId}/data?${new URLSearchParams({ typeId, envId })}`),
   upsertData: (versionId, payload) => request(`/versions/${versionId}/data`, { method: 'POST', body: JSON.stringify(payload) }),
-  exportData: async (versionId, typeId) => {
-    const res = await fetch(`${apiBase}/versions/${versionId}/data/export?${new URLSearchParams({ typeId })}`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
+  exportData: async (versionId, typeId, envId) => {
+    const res = await fetch(`${apiBase}/versions/${versionId}/data/export?${new URLSearchParams({ typeId, envId })}`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
     if (!res.ok) throw new Error(await res.text());
     return res.text();
   },
@@ -58,7 +58,7 @@ export const api = {
     if (!res.ok) throw new Error(await res.text());
     return res.text();
   },
-  importData: (versionId, rows, typeId) => request(`/versions/${versionId}/data/import`, { method: 'POST', body: JSON.stringify({ rows, typeId }) }),
+  importData: (versionId, rows, typeId, envId) => request(`/versions/${versionId}/data/import`, { method: 'POST', body: JSON.stringify({ rows, typeId, envId }) }),
   deleteData: (id) => request(`/data/${id}`, { method: 'DELETE' }),
   // config fetch
   fetchConfig: (appCode, typeCode, key, env) => request(`/config/${appCode}/${typeCode}/${key}?env=${env || 'prod'}`),

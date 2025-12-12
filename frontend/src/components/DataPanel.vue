@@ -162,7 +162,6 @@ const versionOptions = computed(() =>
   props.versions.filter(
     (v) =>
       (!state.appId || v.app_id === state.appId) &&
-      (!state.envId || v.env_id === state.envId || v.env_id == null) &&
       ['RELEASED', 'ARCHIVED'].includes(v.status)
   )
 );
@@ -184,7 +183,7 @@ async function load() {
   if (!state.versionId || !state.typeId) return;
   meta.value = versionOptions.value.find((v) => v.id === state.versionId) || null;
   await loadFieldsForSelection();
-  const list = await api.listData(state.versionId, state.typeId);
+  const list = await api.listData(state.versionId, state.typeId, state.envId);
   rows.value = list.map((item) => ({
     ...item,
     parsed: safeParse(item.data_json)
@@ -254,7 +253,7 @@ async function save() {
   const tasks = [];
   for (const ef of modal.envForms) {
     if (!ef.versionId || ef.disabled) continue;
-    tasks.push(api.upsertData(ef.versionId, { typeId: state.typeId, keyValue, status: ef.status, dataJson: ef.data }));
+    tasks.push(api.upsertData(ef.versionId, { typeId: state.typeId, envId: ef.envId, keyValue, status: ef.status, dataJson: ef.data }));
   }
   await Promise.all(tasks);
   modal.visible = false;
@@ -295,7 +294,7 @@ async function buildEnvForms(row) {
   const baseDefault = defaultData();
   const envForms = [];
   for (const env of envOptions.value) {
-    const version = resolveVersionForEnv(env.id);
+    const version = selectedVersion.value;
     const disabled = !version || version.status === 'ARCHIVED';
     let data = { ...baseDefault };
     let status = 'ENABLED';
@@ -304,7 +303,7 @@ async function buildEnvForms(row) {
         data = { ...baseDefault, ...(row.parsed || {}) };
         status = row.status;
       } else if (key) {
-        const list = await api.listData(version.id, state.typeId);
+        const list = await api.listData(version.id, state.typeId, env.id);
         const match = list.find((item) => item.key_value === key);
         if (match) {
           data = { ...baseDefault, ...(safeParse(match.data_json) || {}) };
@@ -328,15 +327,6 @@ async function buildEnvForms(row) {
     });
   }
   modal.envForms = envForms;
-}
-
-function resolveVersionForEnv(envId) {
-  if (envId === state.envId) return selectedVersion.value;
-  const candidates = props.versions
-    .filter((v) => v.type_id === state.typeId && v.app_id === state.appId && v.env_id === envId)
-    .filter((v) => ['RELEASED', 'ARCHIVED'].includes(v.status))
-    .sort((a, b) => b.id - a.id);
-  return candidates[0] || null;
 }
 
 function csvToRows(text) {
@@ -391,7 +381,8 @@ async function downloadTemplate() {
 
 async function downloadData() {
   if (!state.versionId || !state.typeId) return;
-  const text = await api.exportData(state.versionId, state.typeId);
+  if (!state.envId) return;
+  const text = await api.exportData(state.versionId, state.typeId, state.envId);
   await downloadText(`version_${state.versionId}_data.csv`, text);
 }
 
@@ -433,7 +424,7 @@ async function handleImport(e) {
     if (conflicts.length) messages.push(`与当前环境已存在的Key冲突: ${conflicts.join(', ')}`);
     return ElMessage.error(messages.join('；'));
   }
-  await api.importData(state.versionId, trimmed, state.typeId);
+  await api.importData(state.versionId, trimmed, state.typeId, state.envId);
   ElMessage.success(`已导入${trimmed.length}条`);
   await load();
 }

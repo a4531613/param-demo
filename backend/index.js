@@ -14,6 +14,7 @@ const DB_PATH = path.join(__dirname, 'config-center.db');
 const db = new Database(DB_PATH);
 db.pragma('foreign_keys = ON');
 initSchema();
+ensureConfigDataEnv();
 
 const app = express();
 app.use(cors());
@@ -37,6 +38,36 @@ function audit(actor, action, targetType, targetId, details) {
     `INSERT INTO audit_logs (actor, action, target_type, target_id, details, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(actor || 'unknown', action, targetType, targetId || null, JSON.stringify(details || {}), now());
+}
+
+function ensureConfigDataEnv() {
+  const hasEnv = db.prepare(`PRAGMA table_info(config_data)`).all().some((c) => c.name === 'env_id');
+  if (!hasEnv) {
+    db.transaction(() => {
+      db.exec(`
+        ALTER TABLE config_data RENAME TO config_data_old;
+        CREATE TABLE IF NOT EXISTS config_data (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type_id INTEGER NOT NULL,
+          version_id INTEGER NOT NULL,
+          env_id INTEGER,
+          key_value TEXT NOT NULL,
+          data_json TEXT NOT NULL,
+          status TEXT DEFAULT 'ENABLED',
+          create_user TEXT,
+          create_time TEXT DEFAULT (datetime('now')),
+          update_user TEXT,
+          update_time TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE,
+          FOREIGN KEY (version_id) REFERENCES config_versions(id) ON DELETE CASCADE
+        );
+        INSERT INTO config_data (id, type_id, version_id, env_id, key_value, data_json, status, create_user, create_time, update_user, update_time)
+        SELECT id, type_id, version_id, NULL, key_value, data_json, status, create_user, create_time, update_user, update_time FROM config_data_old;
+        DROP TABLE config_data_old;
+      `);
+    })();
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_config_data_version_env_key ON config_data(version_id, env_id, key_value)`);
 }
 
 function initSchema() {
@@ -791,9 +822,10 @@ app.delete('/api/fields/:id', (req, res) => {
 // --- Config Data --------------------------------------------------------- //
 app.get('/api/versions/:versionId/data', (req, res) => {
   const versionId = Number(req.params.versionId);
-  const { typeId } = req.query;
+  const { typeId, envId } = req.query;
   if (!typeId) return res.status(400).json({ error: 'typeId required' });
-  const rows = db.prepare(`SELECT * FROM config_data WHERE version_id = ? AND type_id = ? ORDER BY id DESC`).all(versionId, typeId);
+  if (!envId) return res.status(400).json({ error: 'envId required' });
+  const rows = db.prepare(`SELECT * FROM config_data WHERE version_id = ? AND type_id = ? AND env_id = ? ORDER BY id DESC`).all(versionId, typeId, envId);
   res.json(rows);
 });
 
@@ -805,13 +837,17 @@ app.post('/api/versions/:versionId/data', (req, res) => {
   if (!version) return res.status(404).json({ error: 'version not found' });
   if (version.status !== 'RELEASED') return res.status(400).json({ error: 'only released version editable' });
   if (!body.typeId) return res.status(400).json({ error: 'typeId required' });
+  if (!body.envId) return res.status(400).json({ error: 'envId required' });
+  const env = db.prepare(`SELECT * FROM environments WHERE id = ?`).get(body.envId);
+  if (!env) return res.status(404).json({ error: 'env not found' });
   const typeRow = db.prepare(`SELECT * FROM config_types WHERE id = ?`).get(body.typeId);
   if (!typeRow) return res.status(404).json({ error: 'type not found' });
   if (typeRow.app_id && version.app_id && typeRow.app_id !== version.app_id) return res.status(400).json({ error: 'type not belong to app' });
+  if (env.app_id && version.app_id && env.app_id !== version.app_id) return res.status(400).json({ error: 'env not belong to app' });
   const stmt = db.prepare(`
-    INSERT INTO config_data (type_id, version_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(version_id, key_value) DO UPDATE SET
+    INSERT INTO config_data (type_id, version_id, env_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(version_id, env_id, key_value) DO UPDATE SET
       data_json=excluded.data_json,
       status=excluded.status,
       update_user=excluded.update_user,
@@ -820,6 +856,7 @@ app.post('/api/versions/:versionId/data', (req, res) => {
   stmt.run(
     body.typeId,
     versionId,
+    body.envId,
     body.keyValue,
     JSON.stringify(body.dataJson || {}),
     body.status || 'ENABLED',
@@ -857,12 +894,14 @@ app.get('/api/versions/:versionId/data/template', (req, res) => {
 app.get('/api/versions/:versionId/data/export', (req, res) => {
   const versionId = Number(req.params.versionId);
   const typeId = Number(req.query.typeId);
+  const envId = Number(req.query.envId);
   const version = db.prepare(`SELECT * FROM config_versions WHERE id = ?`).get(versionId);
   if (!version) return res.status(404).json({ error: 'version not found' });
   if (!typeId) return res.status(400).json({ error: 'typeId required' });
+  if (!envId) return res.status(400).json({ error: 'envId required' });
   const fields = db.prepare(`SELECT field_code FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(typeId);
   const headers = ['key_value', ...fields.map((f) => f.field_code)];
-  const rows = db.prepare(`SELECT key_value, data_json, status FROM config_data WHERE version_id = ? AND type_id = ? ORDER BY id`).all(versionId, typeId);
+  const rows = db.prepare(`SELECT key_value, data_json, status FROM config_data WHERE version_id = ? AND type_id = ? AND env_id = ? ORDER BY id`).all(versionId, typeId, envId);
   let csv = `${headers.join(',')}\r\n`;
   rows.forEach((r) => {
     const data = safeParse(r.data_json) || {};
@@ -883,20 +922,25 @@ app.post('/api/versions/:versionId/data/import', (req, res) => {
   const body = req.body || {};
   const rows = Array.isArray(body.rows) ? body.rows : [];
   const typeId = Number(body.typeId);
+  const envId = Number(body.envId);
   const version = db.prepare(`SELECT status, app_id FROM config_versions WHERE id = ?`).get(versionId);
   if (!version) return res.status(404).json({ error: 'version not found' });
   if (version.status !== 'RELEASED') return res.status(400).json({ error: 'only released version editable' });
   if (!typeId) return res.status(400).json({ error: 'typeId required' });
+  if (!envId) return res.status(400).json({ error: 'envId required' });
+  const env = db.prepare(`SELECT * FROM environments WHERE id = ?`).get(envId);
+  if (!env) return res.status(404).json({ error: 'env not found' });
   const typeRow = db.prepare(`SELECT * FROM config_types WHERE id = ?`).get(typeId);
   if (!typeRow) return res.status(404).json({ error: 'type not found' });
   if (typeRow.app_id && version.app_id && typeRow.app_id !== version.app_id) return res.status(400).json({ error: 'type not belong to app' });
+  if (env.app_id && version.app_id && env.app_id !== version.app_id) return res.status(400).json({ error: 'env not belong to app' });
   if (!rows.length) return res.status(400).json({ error: 'no rows' });
   const fields = db.prepare(`SELECT field_code FROM config_fields WHERE type_id = ?`).all(typeId);
   const fieldSet = new Set(fields.map((f) => f.field_code));
   const upsert = db.prepare(`
-    INSERT INTO config_data (type_id, version_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
-    VALUES (@type_id, @version_id, @key_value, @data_json, @status, @actor, @actor, @now, @now)
-    ON CONFLICT(version_id, key_value) DO UPDATE SET
+    INSERT INTO config_data (type_id, version_id, env_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
+    VALUES (@type_id, @version_id, @env_id, @key_value, @data_json, @status, @actor, @actor, @now, @now)
+    ON CONFLICT(version_id, env_id, key_value) DO UPDATE SET
       data_json=excluded.data_json,
       status=excluded.status,
       update_user=excluded.update_user,
@@ -915,6 +959,7 @@ app.post('/api/versions/:versionId/data/import', (req, res) => {
       upsert.run({
         type_id: typeId,
         version_id: versionId,
+        env_id: envId,
         key_value: key,
         data_json: JSON.stringify(data),
         status: r.status || 'ENABLED',
