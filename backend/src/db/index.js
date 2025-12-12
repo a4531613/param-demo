@@ -1,6 +1,6 @@
 const Database = require('better-sqlite3');
 const { dbPath } = require('../config');
-const { initSchema, ensureConfigDataEnv } = require('./schema');
+const { initSchema, ensureConfigDataEnv, ensureConfigFieldsFieldType } = require('./schema');
 
 let db;
 
@@ -10,8 +10,8 @@ function getDb() {
   db.pragma('foreign_keys = ON');
   initSchema(db);
   ensureConfigDataEnv(db);
+  ensureConfigFieldsFieldType(db);
   return db;
 }
 
 module.exports = { getDb };
-

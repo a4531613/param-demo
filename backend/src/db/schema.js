@@ -28,6 +28,13 @@ function ensureConfigDataEnv(db) {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_config_data_version_env_key ON config_data(version_id, env_id, key_value)`);
 }
 
+function ensureConfigFieldsFieldType(db) {
+  const hasFieldType = db.prepare(`PRAGMA table_info(config_fields)`).all().some((c) => c.name === 'field_type');
+  if (!hasFieldType) {
+    db.exec(`ALTER TABLE config_fields ADD COLUMN field_type TEXT`);
+  }
+}
+
 function migrateConfigVersions(db) {
   const columns = db.prepare(`PRAGMA table_info(config_versions)`).all();
   const hasTypeId = columns.some((c) => c.name === 'type_id');
@@ -139,6 +146,7 @@ function initSchema(db) {
     type_id INTEGER NOT NULL,
     field_code TEXT NOT NULL,
     field_name TEXT NOT NULL,
+    field_type TEXT,
     data_type TEXT NOT NULL,
     max_length INTEGER,
     required INTEGER DEFAULT 0,
@@ -182,5 +190,4 @@ function initSchema(db) {
   migrateConfigVersions(db);
 }
 
-module.exports = { initSchema, ensureConfigDataEnv };
-
+module.exports = { initSchema, ensureConfigDataEnv, ensureConfigFieldsFieldType };

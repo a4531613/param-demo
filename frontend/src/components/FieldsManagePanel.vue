@@ -33,7 +33,9 @@
       <el-table-column prop="field_code" label="字段Key" width="140" />
       <el-table-column prop="field_name" label="字段名称" />
       <!-- 配置类型ID隐藏 -->
-      <el-table-column prop="data_type" label="类型" width="120" />
+      <el-table-column label="字段类型" width="140">
+        <template #default="s">{{ fieldTypeLabel(s.row) }}</template>
+      </el-table-column>
       <el-table-column prop="max_length" label="长度" width="80" />
       <el-table-column prop="required" label="必填" width="70">
         <template #default="s"><el-tag :type="s.row.required ? 'danger' : 'info'">{{ s.row.required ? '是' : '否' }}</el-tag></template>
@@ -69,17 +71,40 @@
       <el-form-item label="字段Key"><el-input v-model="modal.form.fieldCode" :disabled="!!modal.editId" /></el-form-item>
       <el-form-item label="字段名称"><el-input v-model="modal.form.fieldName" /></el-form-item>
       <el-form-item label="字段类型">
+        <el-select v-model="modal.form.fieldType" placeholder="请选择">
+          <el-option label="自动(按数据类型)" value="" />
+          <el-option-group label="输入类">
+            <el-option label="Input：单行输入框" value="Input" />
+            <el-option label="Textarea：多行输入" value="Textarea" />
+            <el-option label="NumberInput：数字输入" value="NumberInput" />
+            <el-option label="Password：密码输入" value="Password" />
+          </el-option-group>
+          <el-option-group label="选择类">
+            <el-option label="Select：下拉单选" value="Select" />
+            <el-option label="MultiSelect：下拉多选" value="MultiSelect" />
+            <el-option label="Radio：单选按钮" value="Radio" />
+            <el-option label="Checkbox：多选框" value="Checkbox" />
+          </el-option-group>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="数据类型" v-if="!modal.form.fieldType">
         <el-select v-model="modal.form.dataType">
-          <el-option label="string" value="string" /><el-option label="number" value="number" />
-          <el-option label="boolean" value="boolean" /><el-option label="date" value="date" />
-          <el-option label="datetime" value="datetime" /><el-option label="enum" value="enum" />
+          <el-option label="string" value="string" />
+          <el-option label="number" value="number" />
+          <el-option label="boolean" value="boolean" />
+          <el-option label="date" value="date" />
+          <el-option label="datetime" value="datetime" />
+          <el-option label="enum" value="enum" />
           <el-option label="json" value="json" />
         </el-select>
+      </el-form-item>
+      <el-form-item label="数据类型" v-else>
+        <el-input :model-value="derivedDataType" disabled />
       </el-form-item>
       <el-form-item label="长度"><el-input-number v-model="modal.form.maxLength" :min="0" /></el-form-item>
       <el-form-item label="必填"><el-switch v-model="modal.form.required" /></el-form-item>
       <el-form-item label="正则约束"><el-input v-model="modal.form.validateRule" /></el-form-item>
-      <el-form-item label="枚举值(JSON)">
+      <el-form-item label="枚举值(JSON)" v-if="needsEnumOptions(modal.form.fieldType) || modal.form.dataType === 'enum'">
         <el-input v-model="modal.form.enumOptions" type="textarea" placeholder='["A","B"]' />
       </el-form-item>
       <el-form-item label="启用"><el-switch v-model="modal.form.enabled" /></el-form-item>
@@ -106,7 +131,32 @@ const filters = reactive({ appId: null, typeId: null, keyword: '' });
 const modal = reactive({
   visible: false,
   editId: null,
-  form: { appId: null, typeId: null, fieldCode: '', fieldName: '', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
+  form: { appId: null, typeId: null, fieldCode: '', fieldName: '', fieldType: 'Input', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
+});
+
+function inferDataTypeByFieldType(fieldType) {
+  if (fieldType === 'NumberInput') return 'number';
+  if (fieldType === 'Select' || fieldType === 'Radio') return 'enum';
+  if (fieldType === 'MultiSelect' || fieldType === 'Checkbox') return 'json';
+  if (fieldType === 'Input' || fieldType === 'Textarea' || fieldType === 'Password') return 'string';
+  return null;
+}
+
+function needsEnumOptions(fieldType) {
+  return fieldType === 'Select' || fieldType === 'MultiSelect' || fieldType === 'Radio' || fieldType === 'Checkbox';
+}
+
+function fieldTypeLabel(row) {
+  if (row.field_type) return row.field_type;
+  if (row.data_type === 'string') return 'Input';
+  if (row.data_type === 'number') return 'NumberInput';
+  if (row.data_type === 'enum') return 'Select';
+  return row.data_type || '-';
+}
+
+const derivedDataType = computed(() => {
+  if (!modal.form.fieldType) return modal.form.dataType;
+  return inferDataTypeByFieldType(modal.form.fieldType) || modal.form.dataType;
 });
 
 const typeOptions = computed(() =>
@@ -142,11 +192,15 @@ function ensureDefaults() {
 async function loadRefs() {
   try {
     apps.splice(0, apps.length, ...(await api.listApps()));
-    types.splice(0, types.length, ...(await api.listTypes()));
-    ensureDefaults();
   } catch (e) {
-    toastError(e, '加载引用数据失败');
+    toastError(e, 'Failed to load apps');
   }
+  try {
+    types.splice(0, types.length, ...(await api.listTypes()));
+  } catch (e) {
+    toastError(e, 'Failed to load types');
+  }
+  ensureDefaults();
 }
 
 async function loadFields() {
@@ -166,6 +220,7 @@ function openModal(row) {
       typeId: row.type_id,
       fieldCode: row.field_code,
       fieldName: row.field_name,
+      fieldType: row.field_type || '',
       dataType: row.data_type,
       maxLength: row.max_length,
       required: !!row.required,
@@ -181,6 +236,7 @@ function openModal(row) {
       typeId: filters.typeId || (typeOptions.value[0] && typeOptions.value[0].id) || null,
       fieldCode: '',
       fieldName: '',
+      fieldType: 'Input',
       dataType: 'string',
       maxLength: null,
       required: true,
@@ -198,8 +254,15 @@ async function save() {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   if (!modal.form.typeId || !modal.form.fieldCode || !modal.form.fieldName) return toastWarning('请填写必填项（类型/字段标识/名称）');
   const payload = { ...modal.form };
+  payload.fieldType = payload.fieldType || null;
+  payload.dataType = payload.fieldType ? (inferDataTypeByFieldType(payload.fieldType) || payload.dataType) : payload.dataType;
+  const shouldHaveEnums = needsEnumOptions(payload.fieldType) || payload.dataType === 'enum';
+  if (shouldHaveEnums && !payload.enumOptions) return toastWarning('Enum options required');
   if (payload.enumOptions) {
     try { payload.enumOptions = JSON.parse(payload.enumOptions); } catch (e) { return toastWarning('枚举值需为 JSON'); }
+  }
+  if (shouldHaveEnums && (!Array.isArray(payload.enumOptions) || !payload.enumOptions.length)) {
+    return toastWarning('Enum options must be a non-empty JSON array');
   }
   try {
     if (modal.editId) {
@@ -255,6 +318,15 @@ watch(
   () => modal.form.appId,
   () => {
     ensureModalDefaults();
+  }
+);
+
+watch(
+  () => modal.form.fieldType,
+  (v) => {
+    if (!v) return;
+    const inferred = inferDataTypeByFieldType(v);
+    if (inferred) modal.form.dataType = inferred;
   }
 );
 

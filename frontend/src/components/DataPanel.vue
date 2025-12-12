@@ -145,7 +145,15 @@
                   v-bind="componentProps(f)"
                   :disabled="ef.disabled"
                 >
-                  <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
+                  <template v-if="usesSelectOptions(f)">
+                    <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
+                  </template>
+                  <template v-else-if="usesRadioOptions(f)">
+                    <el-radio v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt">{{ opt }}</el-radio>
+                  </template>
+                  <template v-else-if="usesCheckboxOptions(f)">
+                    <el-checkbox v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt">{{ opt }}</el-checkbox>
+                  </template>
                 </component>
               </el-form-item>
             </template>
@@ -750,13 +758,65 @@ async function openModal(row) {
   modal.visible = true;
 }
 
+function isMultiValueField(f) {
+  return f.field_type === 'MultiSelect' || f.field_type === 'Checkbox';
+}
+
+function normalizeFieldValue(f, value) {
+  if (!isMultiValueField(f)) return value;
+  if (Array.isArray(value)) return value;
+  if (value == null || value === '') return [];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeDataByFields(data) {
+  const next = { ...(data || {}) };
+  fields.value.forEach((f) => {
+    next[f.field_code] = normalizeFieldValue(f, next[f.field_code]);
+  });
+  return next;
+}
+
+function usesSelectOptions(f) {
+  return f.field_type === 'Select' || f.field_type === 'MultiSelect' || (!f.field_type && f.data_type === 'enum');
+}
+
+function usesRadioOptions(f) {
+  return f.field_type === 'Radio';
+}
+
+function usesCheckboxOptions(f) {
+  return f.field_type === 'Checkbox';
+}
+
 function defaultData() {
   const d = {};
-  fields.value.forEach((f) => { d[f.field_code] = f.default_value || ''; });
+  fields.value.forEach((f) => {
+    const raw = f.default_value;
+    if (isMultiValueField(f)) {
+      d[f.field_code] = normalizeFieldValue(f, raw);
+      return;
+    }
+    d[f.field_code] = raw ?? '';
+  });
   return d;
 }
 
 function componentOf(f) {
+  if (f.field_type === 'NumberInput') return 'el-input-number';
+  if (f.field_type === 'Textarea') return 'el-input';
+  if (f.field_type === 'Password') return 'el-input';
+  if (f.field_type === 'Select' || f.field_type === 'MultiSelect') return 'el-select';
+  if (f.field_type === 'Radio') return 'el-radio-group';
+  if (f.field_type === 'Checkbox') return 'el-checkbox-group';
   if (f.data_type === 'number') return 'el-input-number';
   if (f.data_type === 'boolean') return 'el-switch';
   if (f.data_type === 'date') return 'el-date-picker';
@@ -766,6 +826,10 @@ function componentOf(f) {
 }
 
 function componentProps(f) {
+  if (f.field_type === 'Textarea') return { type: 'textarea', autosize: { minRows: 2, maxRows: 6 } };
+  if (f.field_type === 'Password') return { type: 'password', showPassword: true };
+  if (f.field_type === 'Select') return { clearable: true, filterable: true, style: 'width:100%' };
+  if (f.field_type === 'MultiSelect') return { multiple: true, collapseTags: true, collapseTagsTooltip: true, clearable: true, filterable: true, style: 'width:100%' };
   if (f.data_type === 'date') return { type: 'date', style: 'width:100%' };
   if (f.data_type === 'datetime') return { type: 'datetime', style: 'width:100%' };
   if (f.data_type === 'enum') return { clearable: true };
@@ -915,6 +979,7 @@ async function buildEnvForms(row) {
         }
       }
     }
+    data = normalizeDataByFields(data);
     envForms.push({
       envId: env.id,
       envName: env.env_name,
@@ -957,6 +1022,7 @@ async function buildPreviewEnvForms(row) {
         }
       }
     }
+    data = normalizeDataByFields(data);
     envForms.push({
       envId: env.id,
       envName: env.env_name,
