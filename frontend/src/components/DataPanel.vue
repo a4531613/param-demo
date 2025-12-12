@@ -53,9 +53,13 @@
       <el-table-column
         v-for="f in fields"
         :key="f.field_code"
-        :label="f.field_name"
         :min-width="120"
       >
+        <template #header>
+          <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+            <span class="table-header-ellipsis">{{ f.field_name }}</span>
+          </el-tooltip>
+        </template>
         <template #default="scope">
           <el-tag type="info">{{ formatValue(scope.row.parsed?.[f.field_code]) }}</el-tag>
         </template>
@@ -101,7 +105,12 @@
               <el-switch v-model="ef.status" active-value="ENABLED" inactive-value="DISABLED" :disabled="ef.disabled" />
             </el-form-item>
             <template v-for="f in fields" :key="f.field_code">
-              <el-form-item :label="f.field_name">
+              <el-form-item>
+                <template #label>
+                  <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+                    <span class="form-label-ellipsis">{{ f.field_name }}</span>
+                  </el-tooltip>
+                </template>
                 <component
                   :is="componentOf(f)"
                   v-model="ef.data[f.field_code]"
@@ -577,4 +586,6 @@ loadRefs();
 .env-card__meta { display:flex; gap:6px; align-items:center; }
 .env-card__form { padding-top:4px; }
 .env-card__disabled { color:#9ca3af; font-size:12px; margin-top:4px; }
+.table-header-ellipsis { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+.form-label-ellipsis { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
 </style>
