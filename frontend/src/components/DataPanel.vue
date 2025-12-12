@@ -25,8 +25,8 @@
         </div>
 
         <div class="toolbar__actions">
-          <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite || isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
-          <el-button type="danger" @click="batchRemove" :disabled="!capabilities.canWrite || !selected.length || isArchivedVersion">批量删除</el-button>
+          <el-button type="primary" @click="addInlineDraft()" :disabled="!capabilities.canWrite || isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
+          <el-button type="danger" @click="batchRemove" :disabled="!capabilities.canWrite || !selectedIds.length || isArchivedVersion">批量删除</el-button>
           <el-dropdown trigger="click">
             <el-button>
               更多
@@ -59,45 +59,111 @@
     <div v-else>
       <el-empty v-if="!displayedRows.length" description="暂无配置数据，可新增或导入。" />
       <div v-if="!displayedRows.length" class="cc-empty-actions">
-        <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite || isArchivedVersion">新增配置</el-button>
+        <el-button type="primary" @click="addInlineDraft()" :disabled="!capabilities.canWrite || isArchivedVersion">新增配置</el-button>
         <el-button @click="triggerImport" :disabled="!capabilities.canWrite || isArchivedVersion">导入</el-button>
         <el-button @click="downloadAllHtml" :disabled="!state.appId || !state.versionId || !state.envId">导出HTML</el-button>
       </div>
-      <el-table v-else :data="displayedRows" border @selection-change="onSelectionChange">
-      <el-table-column type="selection" width="50" />
-      <el-table-column prop="id" label="数据ID" width="90" />
-      <el-table-column prop="key_value" label="Key" width="200" />
-      <el-table-column prop="status" label="启用" width="100">
-        <template #default="scope">
-          <el-switch
-            :model-value="scope.row.status"
-            active-value="ENABLED"
-            inactive-value="DISABLED"
-            disabled
-          />
-        </template>
-      </el-table-column>
-      <el-table-column
-        v-for="f in fields"
-        :key="f.field_code"
-        :min-width="120"
-      >
-        <template #header>
-          <el-tooltip :content="f.field_name" placement="top" :show-after="300">
-            <span class="table-header-ellipsis">{{ f.field_name }}</span>
-          </el-tooltip>
-        </template>
-        <template #default="scope">
-          <el-tag type="info">{{ formatValue(scope.row.parsed?.[f.field_code]) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="200">
-        <template #default="scope">
-          <el-button link type="info" @click="openPreview(scope.row)">预览</el-button>
-          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite || isArchivedVersion">编辑</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      <div v-else class="data-form-list">
+        <el-card v-for="d in newDrafts" :key="d.tempId" shadow="hover" class="data-card">
+          <template #header>
+            <div class="data-card__header">
+              <div class="data-card__left">
+                <el-button link type="info" @click="toggleDraftExpanded(d)" class="data-card__fold">
+                  <el-icon><component :is="d.expanded ? CaretBottom : CaretRight" /></el-icon>
+                  {{ d.expanded ? '收起' : '展开' }}
+                </el-button>
+                <el-tag type="success">NEW</el-tag>
+                <el-input v-model="d.keyValue" placeholder="Key" class="cc-control--lg" :disabled="!capabilities.canWrite || isArchivedVersion" />
+              </div>
+              <div class="data-card__actions">
+                <el-button size="small" @click="removeInlineDraft(d.tempId)">取消</el-button>
+                <el-button size="small" type="primary" @click="saveInlineDraft(d)" :disabled="!capabilities.canWrite || isArchivedVersion">保存</el-button>
+              </div>
+            </div>
+          </template>
+          <el-collapse-transition>
+            <div v-show="d.expanded">
+              <el-form label-width="110px" class="data-card__form">
+                <el-form-item label="启用">
+                  <el-switch v-model="d.status" active-value="ENABLED" inactive-value="DISABLED" :disabled="!capabilities.canWrite || isArchivedVersion" />
+                </el-form-item>
+                <template v-for="f in fields" :key="f.field_code">
+                  <el-form-item>
+                    <template #label>
+                      <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+                        <span class="form-label-ellipsis">{{ f.field_name }}</span>
+                      </el-tooltip>
+                    </template>
+                    <component :is="componentOf(f)" v-model="d.data[f.field_code]" v-bind="componentProps(f)" :disabled="!capabilities.canWrite || isArchivedVersion">
+                      <template v-if="usesSelectOptions(f)">
+                        <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
+                      </template>
+                      <template v-else-if="usesRadioOptions(f)">
+                        <el-radio v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt">{{ opt }}</el-radio>
+                      </template>
+                      <template v-else-if="usesCheckboxOptions(f)">
+                        <el-checkbox v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt">{{ opt }}</el-checkbox>
+                      </template>
+                    </component>
+                  </el-form-item>
+                </template>
+              </el-form>
+            </div>
+          </el-collapse-transition>
+        </el-card>
+
+        <el-card v-for="row in displayedRows" :key="row.id" shadow="hover" class="data-card">
+          <template #header>
+            <div class="data-card__header">
+              <div class="data-card__left">
+                <el-button link type="info" @click="toggleRowExpanded(row)" class="data-card__fold">
+                  <el-icon><component :is="ensureInlineDraft(row).expanded ? CaretBottom : CaretRight" /></el-icon>
+                  {{ ensureInlineDraft(row).expanded ? '收起' : '展开' }}
+                </el-button>
+                <el-checkbox
+                  :model-value="selectedIds.includes(row.id)"
+                  @change="(v) => toggleSelected(row.id, v)"
+                  :disabled="!capabilities.canWrite || isArchivedVersion"
+                />
+                <div class="data-card__key">{{ row.key_value }}</div>
+                <el-tag size="small" :type="ensureInlineDraft(row).status === 'ENABLED' ? 'success' : 'info'">{{ ensureInlineDraft(row).status === 'ENABLED' ? '启用' : '停用' }}</el-tag>
+              </div>
+              <div class="data-card__actions">
+                <el-button size="small" @click="openPreview(row)">预览</el-button>
+                <el-button size="small" @click="openModal(row)" :disabled="!capabilities.canWrite || isArchivedVersion">跨环境</el-button>
+                <el-button size="small" type="primary" @click="saveInlineRow(row)" :disabled="!capabilities.canWrite || isArchivedVersion">保存</el-button>
+                <el-button size="small" type="danger" @click="remove(row)" :disabled="!capabilities.canWrite || isArchivedVersion">删除</el-button>
+              </div>
+            </div>
+          </template>
+          <el-collapse-transition>
+            <div v-show="ensureInlineDraft(row).expanded">
+              <el-form label-width="110px" class="data-card__form">
+                <template v-for="f in fields" :key="f.field_code">
+                  <el-form-item>
+                    <template #label>
+                      <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+                        <span class="form-label-ellipsis">{{ f.field_name }}</span>
+                      </el-tooltip>
+                    </template>
+                    <component :is="componentOf(f)" v-model="ensureInlineDraft(row).data[f.field_code]" v-bind="componentProps(f)" :disabled="!capabilities.canWrite || isArchivedVersion">
+                      <template v-if="usesSelectOptions(f)">
+                        <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
+                      </template>
+                      <template v-else-if="usesRadioOptions(f)">
+                        <el-radio v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt">{{ opt }}</el-radio>
+                      </template>
+                      <template v-else-if="usesCheckboxOptions(f)">
+                        <el-checkbox v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt">{{ opt }}</el-checkbox>
+                      </template>
+                    </component>
+                  </el-form-item>
+                </template>
+              </el-form>
+            </div>
+          </el-collapse-transition>
+        </el-card>
+      </div>
     </div>
   </el-card>
 
@@ -395,7 +461,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { capabilities } from '../userContext';
 import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
-import { ArrowLeft, ArrowRight, MoreFilled } from '@element-plus/icons-vue';
+import { ArrowLeft, ArrowRight, CaretBottom, CaretRight, MoreFilled } from '@element-plus/icons-vue';
 import { api } from '../api';
 
 const props = defineProps({ versions: { type: Array, default: () => [] }, types: { type: Array, default: () => [] } });
@@ -409,6 +475,7 @@ const showEnabledOnly = ref(true);
 const displayedRows = computed(() =>
   showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value
 );
+const selected = computed(() => rows.value.filter((r) => selectedIds.value.includes(r.id)));
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '' }, envForms: [] });
 const preview = reactive({ visible: false, row: null, envForms: [] });
 const versionPreview = reactive({
@@ -422,7 +489,9 @@ const versionPreview = reactive({
   rows: []
 });
 const importInput = ref(null);
-const selected = ref([]);
+const selectedIds = ref([]);
+const inlineDrafts = reactive({});
+const newDrafts = ref([]);
 const envCarousel = reactive({ start: 0, pageSize: 3 });
 const previewCarousel = reactive({ start: 0, pageSize: 3 });
 
@@ -569,6 +638,7 @@ async function load() {
     ...item,
     parsed: safeParse(item.data_json)
   }));
+  rebuildInlineDrafts();
 }
 
 function onEnvSelect(id) {
@@ -578,6 +648,81 @@ function onEnvSelect(id) {
 function onTypeSelect(id) {
   state.typeId = id;
   load();
+}
+
+function rebuildInlineDrafts() {
+  Object.keys(inlineDrafts).forEach((k) => delete inlineDrafts[k]);
+  rows.value.forEach((r) => {
+    inlineDrafts[String(r.id)] = { status: r.status, data: normalizeDataByFields(r.parsed || {}), expanded: false };
+  });
+  selectedIds.value = selectedIds.value.filter((id) => rows.value.some((r) => r.id === id));
+}
+
+function ensureInlineDraft(row) {
+  const id = row?.id;
+  if (!id) return { status: row?.status || 'ENABLED', data: normalizeDataByFields(row?.parsed || {}) };
+  const key = String(id);
+  if (!inlineDrafts[key]) {
+    inlineDrafts[key] = { status: row?.status || 'ENABLED', data: normalizeDataByFields(row?.parsed || {}), expanded: false };
+  }
+  return inlineDrafts[key];
+}
+
+function toggleRowExpanded(row) {
+  const draft = ensureInlineDraft(row);
+  draft.expanded = !draft.expanded;
+}
+
+function toggleSelected(id, checked) {
+  const next = new Set(selectedIds.value);
+  if (checked) next.add(id);
+  else next.delete(id);
+  selectedIds.value = [...next];
+}
+
+function addInlineDraft() {
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  if (!state.versionId || !state.typeId || !state.envId) return toastWarning('请先选择版本/环境/类型');
+  if (isArchivedVersion.value) return toastWarning('归档版本不可新增配置');
+  newDrafts.value.unshift({
+    tempId: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    keyValue: '',
+    status: 'ENABLED',
+    data: normalizeDataByFields(defaultData()),
+    expanded: false
+  });
+}
+
+function removeInlineDraft(tempId) {
+  newDrafts.value = newDrafts.value.filter((d) => d.tempId !== tempId);
+}
+
+function toggleDraftExpanded(d) {
+  d.expanded = !d.expanded;
+}
+
+async function saveInlineRow(row) {
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  if (!state.versionId || !state.typeId || !state.envId) return;
+  const draft = ensureInlineDraft(row);
+  await api.upsertData(state.versionId, { typeId: state.typeId, envId: state.envId, keyValue: row.key_value, status: draft.status, dataJson: draft.data });
+  toastSuccess('已保存');
+  await load();
+}
+
+async function saveInlineDraft(d) {
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  if (!state.versionId || !state.typeId || !state.envId) return;
+  const keyValue = (d.keyValue || '').trim();
+  if (!keyValue) return toastWarning('Key不能为空');
+  const existingKeys = new Set(rows.value.map((r) => r.key_value));
+  if (existingKeys.has(keyValue)) return toastWarning('当前环境下已存在相同Key');
+  const newKeys = new Set(newDrafts.value.filter((x) => x.tempId !== d.tempId).map((x) => (x.keyValue || '').trim()).filter(Boolean));
+  if (newKeys.has(keyValue)) return toastWarning('新增列表中存在重复Key');
+  await api.upsertData(state.versionId, { typeId: state.typeId, envId: state.envId, keyValue, status: d.status, dataJson: d.data });
+  toastSuccess('已保存');
+  removeInlineDraft(d.tempId);
+  await load();
 }
 
 async function openPreview(row) {
@@ -891,7 +1036,7 @@ async function batchRemove() {
   for (const id of ids) {
     await api.deleteData(id);
   }
-  selected.value = [];
+  selectedIds.value = [];
   await load();
 }
 
@@ -944,7 +1089,7 @@ function adjustPreviewCarouselStart(envForms) {
 }
 
 function onSelectionChange(list) {
-  selected.value = list || [];
+  selectedIds.value = (list || []).map((r) => r.id);
 }
 
 async function loadFieldsForSelection() {
@@ -1218,6 +1363,13 @@ loadRefs();
   .toolbar__filters { min-width: 100%; }
   .toolbar__actions { width: 100%; }
 }
+.data-form-list { margin-top:10px; display:flex; flex-direction:column; gap:12px; }
+.data-card__header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.data-card__left { display:flex; align-items:center; gap:10px; min-width:0; flex: 1 1 auto; }
+.data-card__fold { padding: 0; }
+.data-card__key { font-weight:600; color:#111827; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:520px; }
+.data-card__actions { display:flex; align-items:center; gap:8px; flex: 0 0 auto; }
+.data-card__form { padding-top:4px; }
 .meta { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }
