@@ -73,36 +73,49 @@
     <el-form :model="modal.form" label-width="120px">
       <el-form-item label="Key"><el-input v-model="modal.form.keyValue" :disabled="!!modal.editId" /></el-form-item>
     </el-form>
-    <div class="env-form-grid">
-      <el-card v-for="ef in modal.envForms" :key="ef.envId" shadow="hover" class="env-card">
-        <div class="env-card__header">
-          <div class="env-card__title">{{ ef.envName }} ({{ ef.envCode }})</div>
-          <div class="env-card__meta">
-            <el-tag size="small" type="info">版本ID: {{ ef.versionId || '—' }}</el-tag>
-            <el-tag size="small" :type="ef.versionStatus === 'ARCHIVED' ? 'info' : 'success'">
-              {{ statusLabel(ef.versionStatus) || '未发布' }}
-            </el-tag>
-          </div>
+    <div class="env-carousel">
+      <div class="env-carousel__header">
+        <div class="env-carousel__title">配置环境</div>
+        <div class="env-carousel__controls" v-if="modal.envForms.length > envCarousel.pageSize">
+          <el-button circle size="small" @click="slideEnv(-1)" :disabled="!canSlidePrev">
+            <el-icon><ArrowLeft /></el-icon>
+          </el-button>
+          <el-button circle size="small" @click="slideEnv(1)" :disabled="!canSlideNext">
+            <el-icon><ArrowRight /></el-icon>
+          </el-button>
         </div>
-        <el-form label-width="110px" class="env-card__form">
-          <el-form-item label="启用">
-            <el-switch v-model="ef.status" active-value="ENABLED" inactive-value="DISABLED" :disabled="ef.disabled" />
-          </el-form-item>
-          <template v-for="f in fields" :key="f.field_code">
-            <el-form-item :label="f.field_name">
-              <component
-                :is="componentOf(f)"
-                v-model="ef.data[f.field_code]"
-                v-bind="componentProps(f)"
-                :disabled="ef.disabled"
-              >
-                <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
-              </component>
+      </div>
+      <div class="env-form-grid">
+        <el-card v-for="ef in visibleEnvForms" :key="ef.envId" shadow="hover" class="env-card">
+          <div class="env-card__header">
+            <div class="env-card__title">{{ ef.envName }} ({{ ef.envCode }})</div>
+            <div class="env-card__meta">
+              <el-tag size="small" type="info">版本ID: {{ ef.versionId || '–' }}</el-tag>
+              <el-tag size="small" :type="ef.versionStatus === 'ARCHIVED' ? 'info' : 'success'">
+                {{ statusLabel(ef.versionStatus) || '未发布' }}
+              </el-tag>
+            </div>
+          </div>
+          <el-form label-width="110px" class="env-card__form">
+            <el-form-item label="启用">
+              <el-switch v-model="ef.status" active-value="ENABLED" inactive-value="DISABLED" :disabled="ef.disabled" />
             </el-form-item>
-          </template>
-          <div v-if="ef.disabled" class="env-card__disabled">该环境无可编辑版本或已归档</div>
-        </el-form>
-      </el-card>
+            <template v-for="f in fields" :key="f.field_code">
+              <el-form-item :label="f.field_name">
+                <component
+                  :is="componentOf(f)"
+                  v-model="ef.data[f.field_code]"
+                  v-bind="componentProps(f)"
+                  :disabled="ef.disabled"
+                >
+                  <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
+                </component>
+              </el-form-item>
+            </template>
+            <div v-if="ef.disabled" class="env-card__disabled">该环境无可编辑版本或已归档</div>
+          </el-form>
+        </el-card>
+      </div>
     </div>
     <template #footer>
       <el-button type="danger" v-if="modal.editId" @click="deleteAcrossEnvs">删除</el-button>
@@ -135,6 +148,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue';
 import { api } from '../api';
 
 const props = defineProps({ versions: { type: Array, default: () => [] }, types: { type: Array, default: () => [] } });
@@ -155,6 +169,7 @@ const preview = reactive({
 });
 const importInput = ref(null);
 const selected = ref([]);
+const envCarousel = reactive({ start: 0, pageSize: 3 });
 
 const envOptions = computed(() => envs.value.filter((e) => !state.appId || e.app_id === state.appId));
 const typeOptions = computed(() => props.types.filter((t) => !state.appId || t.app_id === state.appId));
@@ -170,6 +185,13 @@ const isArchivedVersion = computed(() => selectedVersion.value?.status === 'ARCH
 const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
 const statusLabel = (s) => statusLabelMap[s] || s;
 const versionLabel = (v) => statusLabelMap[v?.status] || v?.status || '—';
+const visibleEnvForms = computed(() =>
+  modal.envForms.slice(envCarousel.start, envCarousel.start + envCarousel.pageSize)
+);
+const canSlidePrev = computed(() => envCarousel.start > 0);
+const canSlideNext = computed(
+  () => envCarousel.start + envCarousel.pageSize < modal.envForms.length
+);
 const safeParse = (text) => {
   try { return JSON.parse(text); } catch (e) { return {}; }
 };
@@ -306,6 +328,23 @@ async function collectIdsAcrossEnvs(keys) {
   return [...new Set(all.flat())];
 }
 
+function slideEnv(step) {
+  const maxStart = Math.max(0, modal.envForms.length - envCarousel.pageSize);
+  envCarousel.start = Math.min(Math.max(0, envCarousel.start + step), maxStart);
+}
+
+function adjustEnvCarouselStart(envForms) {
+  const size = envCarousel.pageSize;
+  const total = envForms.length;
+  if (!total) { envCarousel.start = 0; return; }
+  if (total <= size) { envCarousel.start = 0; return; }
+  const idx = envForms.findIndex((ef) => ef.envId === state.envId);
+  const center = Math.floor((size - 1) / 2);
+  const desiredStart = (idx >= 0 ? idx - center : 0);
+  const maxStart = Math.max(0, total - size);
+  envCarousel.start = Math.min(Math.max(0, desiredStart), maxStart);
+}
+
 function onSelectionChange(list) {
   selected.value = list || [];
 }
@@ -358,6 +397,7 @@ async function buildEnvForms(row) {
       disabled
     });
   }
+  adjustEnvCarouselStart(envForms);
   modal.envForms = envForms;
 }
 
@@ -526,7 +566,12 @@ loadRefs();
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }
 .preview-key { font-size:18px; font-weight:600; color:#111827; }
-.env-form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; margin-top:8px; }
+.env-carousel { margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+.env-carousel__header { display:flex; align-items:center; justify-content:space-between; }
+.env-carousel__title { font-weight:600; color:#111827; }
+.env-carousel__controls { display:flex; gap:6px; }
+.env-form-grid { display:flex; flex-wrap:nowrap; gap:12px; margin-top:8px; overflow:hidden; }
+.env-card { flex:1 1 0; min-width:0; }
 .env-card__header { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
 .env-card__title { font-weight:600; color:#111827; }
 .env-card__meta { display:flex; gap:6px; align-items:center; }
