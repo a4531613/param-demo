@@ -1,22 +1,22 @@
 <template>
   <el-card>
     <template #header>
-      <div class="toolbar">
+      <div class="cc-toolbar">
         <div class="toolbar__filters">
-          <el-select v-model="state.appId" placeholder="应用" style="width:200px;">
+          <el-select v-model="state.appId" placeholder="应用" class="cc-control--md">
             <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
           </el-select>
-          <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
+          <el-select v-model="state.versionId" placeholder="选择版本" class="cc-control--lg" @change="load">
             <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
           </el-select>
-          <div class="tag-group" v-if="envOptions.length">
-            <span class="tag-label">环境</span>
+          <div class="cc-tag-group" v-if="envOptions.length">
+            <span class="cc-tag-label">环境</span>
             <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
               {{ `${e.env_name} (${e.env_code})` }}
             </el-check-tag>
           </div>
-          <div class="tag-group" v-if="typeOptions.length">
-            <span class="tag-label">配置类型</span>
+          <div class="cc-tag-group" v-if="typeOptions.length">
+            <span class="cc-tag-label">配置类型</span>
             <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
               {{ `${t.type_name} (${t.type_code})` }}
             </el-check-tag>
@@ -44,7 +44,7 @@
           </el-dropdown>
         </div>
 
-        <input type="file" ref="importInput" style="display:none;" accept=".csv,text/csv" @change="handleImport" />
+        <input type="file" ref="importInput" class="cc-hidden" accept=".csv,text/csv" @change="handleImport" />
       </div>
       <div v-if="meta" class="meta">
         <el-tag>版本ID: {{ meta.id }}</el-tag>
@@ -210,7 +210,7 @@
     <div class="version-preview">
       <div class="version-preview__toolbar">
         <el-tag type="info">当前版本：{{ selectedVersion?.version_no || '—' }}</el-tag>
-        <el-select v-model="versionPreview.baseId" placeholder="对比基线版本（可选）" style="width:280px" @change="loadVersionPreview">
+        <el-select v-model="versionPreview.baseId" placeholder="对比基线版本（可选）" class="cc-control--xxl" @change="loadVersionPreview">
           <el-option :value="null" label="无对比（只看当前）" />
           <el-option
             v-for="v in baselineVersionOptions"
@@ -219,12 +219,12 @@
             :value="v.id"
           />
         </el-select>
-        <el-input v-model="versionPreview.filter" clearable placeholder="搜索 Key/环境/类型" style="width:260px" />
+        <el-input v-model="versionPreview.filter" clearable placeholder="搜索 Key/环境/类型" class="cc-control--xl" />
         <el-button @click="loadVersionPreview" :loading="versionPreview.loading" :disabled="!versionPreview.targetId">刷新</el-button>
       </div>
 
-      <div class="version-preview__envtags" v-if="versionPreviewEnvOptions.length">
-        <span class="tag-label">环境</span>
+      <div class="version-preview__envtags cc-tag-group" v-if="versionPreviewEnvOptions.length">
+        <span class="cc-tag-label">环境</span>
         <el-check-tag
           v-for="e in versionPreviewEnvOptions"
           :key="String(e.envId)"
@@ -1129,7 +1129,7 @@ loadRefs();
 </script>
 
 <style scoped>
-.toolbar { display:flex; align-items:flex-start; gap:10px; flex-wrap: wrap; }
+.cc-toolbar { align-items:flex-start; }
 .toolbar__filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex: 1 1 520px; min-width: 360px; }
 .toolbar__actions { display:flex; align-items:center; gap:8px; flex: 0 0 auto; }
 @media (max-width: 900px) {
@@ -1137,8 +1137,6 @@ loadRefs();
   .toolbar__actions { width: 100%; }
 }
 .meta { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
-.tag-group { display:flex; align-items:center; gap:6px; }
-.tag-label { color:#6b7280; font-size:12px; }
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }
 .preview-key { font-size:18px; font-weight:600; color:#111827; }

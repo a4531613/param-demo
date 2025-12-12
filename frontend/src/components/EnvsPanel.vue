@@ -1,13 +1,15 @@
 <template>
   <el-card>
     <template #header>
-      <div class="toolbar">
-        <el-select v-model="filters.appId" placeholder="选择应用" style="width:220px;">
+      <div class="cc-toolbar">
+        <div class="cc-toolbar__group">
+          <el-select v-model="filters.appId" placeholder="选择应用" class="cc-control--lg">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
-        </el-select>
-        <div>
+          </el-select>
+        </div>
+        <div class="cc-toolbar__group">
           <el-switch v-model="filters.enabledOnly" active-text="仅启用" />
-          <el-button type="primary" style="margin-left:10px;" @click="openModal()">新增环境</el-button>
+          <el-button type="primary" @click="openModal()">新增环境</el-button>
         </div>
       </div>
     </template>
@@ -131,7 +133,3 @@ watch(
   }
 );
 </script>
-
-<style scoped>
-.toolbar { display:flex; justify-content: space-between; align-items:center; }
-</style>

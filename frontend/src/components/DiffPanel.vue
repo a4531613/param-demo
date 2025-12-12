@@ -1,14 +1,16 @@
 <template>
   <el-card>
     <template #header>
-      <div class="toolbar">
-        <el-select v-model="state.a" placeholder="版本A" style="width:220px;">
+      <div class="cc-toolbar">
+        <div class="cc-toolbar__group">
+          <el-select v-model="state.a" placeholder="版本A" class="cc-control--lg">
           <el-option v-for="v in versions" :key="v.id" :label="`${v.version_no} (${v.status})`" :value="v.id" />
-        </el-select>
-        <el-select v-model="state.b" placeholder="版本B" style="width:220px; margin-left:10px;">
+          </el-select>
+          <el-select v-model="state.b" placeholder="版本B" class="cc-control--lg">
           <el-option v-for="v in versions" :key="v.id" :label="`${v.version_no} (${v.status})`" :value="v.id" />
-        </el-select>
-        <el-button type="primary" @click="load">对比</el-button>
+          </el-select>
+          <el-button type="primary" @click="load">对比</el-button>
+        </div>
       </div>
     </template>
     <el-row :gutter="12">
@@ -50,7 +52,3 @@ async function load() {
   diff.data = res.data;
 }
 </script>
-
-<style scoped>
-.toolbar { display:flex; align-items:center; gap:10px; }
-</style>

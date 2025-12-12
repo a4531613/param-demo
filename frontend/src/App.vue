@@ -1,11 +1,11 @@
 <template>
-  <el-container style="height: 100vh;">
-    <el-header height="60px" class="header">
-      <div class="logo">参数配置中心</div>
+  <el-container class="cc-app">
+    <el-header height="60px" class="cc-app__header">
+      <div class="cc-app__logo">参数配置中心</div>
       <el-tag type="info">Demo 用户: admin</el-tag>
     </el-header>
     <el-container>
-      <el-aside width="220px" class="aside">
+      <el-aside width="220px" class="cc-app__aside">
         <el-menu :default-active="active" @select="active = $event">
           <el-menu-item index="apps">应用管理</el-menu-item>
           <el-menu-item index="envs">环境管理</el-menu-item>
@@ -17,7 +17,7 @@
           <el-menu-item index="audit">审计日志</el-menu-item>
         </el-menu>
       </el-aside>
-      <el-main class="main">
+      <el-main class="cc-app__main">
         <component :is="currentComp"
                    :types="types"
                    :versions="versions"
@@ -64,16 +64,3 @@ onMounted(async () => {
   await loadVersions();
 });
 </script>
-
-<style scoped>
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #0f172a;
-  color: #e2e8f0;
-}
-.logo { font-weight: 700; font-size: 16px; }
-.aside { border-right: 1px solid #e5e7eb; }
-.main { background: #f5f6fb; }
-</style>

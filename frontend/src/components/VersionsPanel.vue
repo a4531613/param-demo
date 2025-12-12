@@ -1,15 +1,17 @@
 <template>
   <el-card>
     <template #header>
-      <div class="toolbar">
-        <el-select v-model="filters.appId" placeholder="应用" clearable style="width:180px;">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
-        </el-select>
-        <el-select v-model="filters.status" placeholder="状态" clearable style="width:140px;">
-          <el-option label="待发布" value="PENDING_RELEASE" />
-          <el-option label="已发布" value="RELEASED" />
-          <el-option label="已归档" value="ARCHIVED" />
-        </el-select>
+      <div class="cc-toolbar">
+        <div class="cc-toolbar__group">
+          <el-select v-model="filters.appId" placeholder="应用" clearable class="cc-control--sm">
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+          </el-select>
+          <el-select v-model="filters.status" placeholder="状态" clearable class="cc-control--xs">
+            <el-option label="待发布" value="PENDING_RELEASE" />
+            <el-option label="已发布" value="RELEASED" />
+            <el-option label="已归档" value="ARCHIVED" />
+          </el-select>
+        </div>
         <el-button type="primary" @click="openModal()">新增版本</el-button>
       </div>
     </template>
@@ -51,8 +53,8 @@
       </el-form-item>
       <el-form-item label="版本号"><el-input v-model="modal.form.versionNo" /></el-form-item>
       <el-form-item label="描述"><el-input v-model="modal.form.description" type="textarea" /></el-form-item>
-      <el-form-item label="开始时间"><el-date-picker v-model="modal.form.effectiveFrom" type="datetime" style="width:100%;" /></el-form-item>
-      <el-form-item label="结束时间"><el-date-picker v-model="modal.form.effectiveTo" type="datetime" style="width:100%;" /></el-form-item>
+      <el-form-item label="开始时间"><el-date-picker v-model="modal.form.effectiveFrom" type="datetime" class="cc-control--full" /></el-form-item>
+      <el-form-item label="结束时间"><el-date-picker v-model="modal.form.effectiveTo" type="datetime" class="cc-control--full" /></el-form-item>
       <el-form-item label="启用"><el-switch v-model="modal.form.enabled" /></el-form-item>
     </el-form>
     <template #footer>
@@ -167,7 +169,3 @@ watch(
   }
 );
 </script>
-
-<style scoped>
-.toolbar { display:flex; align-items: center; gap:10px; flex-wrap: wrap; }
-</style>

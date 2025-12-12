@@ -1,0 +1,47 @@
+:root {
+  /* Design tokens (enterprise, restrained) */
+  --cc-color-bg: #f6f7fb;
+  --cc-color-surface: #ffffff;
+  --cc-color-surface-2: #f9fafb;
+  --cc-color-text: #111827;
+  --cc-color-muted: #6b7280;
+  --cc-color-border: #e5e7eb;
+
+  --cc-color-primary: #2563eb;
+  --cc-color-primary-hover: #1d4ed8;
+  --cc-color-danger: #dc2626;
+  --cc-color-warning: #d97706;
+  --cc-color-success: #16a34a;
+
+  --cc-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Noto Sans", "PingFang SC",
+    "Microsoft YaHei", "Apple Color Emoji", "Segoe UI Emoji";
+  --cc-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --cc-font-size-12: 12px;
+  --cc-font-size-13: 13px;
+  --cc-font-size-14: 14px;
+  --cc-font-size-16: 16px;
+
+  --cc-space-1: 4px;
+  --cc-space-2: 8px;
+  --cc-space-3: 12px;
+  --cc-space-4: 16px;
+  --cc-space-5: 20px;
+  --cc-space-6: 24px;
+
+  --cc-radius-sm: 6px;
+  --cc-radius-md: 10px;
+  --cc-radius-lg: 14px;
+
+  --cc-shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.06);
+  --cc-shadow-md: 0 10px 30px rgba(17, 24, 39, 0.10);
+
+  /* Control widths */
+  --cc-control-w-xs: 140px;
+  --cc-control-w-sm: 160px;
+  --cc-control-w-md: 200px;
+  --cc-control-w-lg: 220px;
+  --cc-control-w-xl: 240px;
+  --cc-control-w-xxl: 280px;
+}
+

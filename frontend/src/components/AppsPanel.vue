@@ -1,11 +1,13 @@
 <template>
   <el-card>
     <template #header>
-      <div class="toolbar">
-        <el-input v-model="filters.keyword" placeholder="按名称/ID过滤" clearable style="width:240px;" />
-        <div>
+      <div class="cc-toolbar">
+        <div class="cc-toolbar__group">
+          <el-input v-model="filters.keyword" placeholder="按名称/ID过滤" clearable class="cc-control--xl" />
+        </div>
+        <div class="cc-toolbar__group">
           <el-switch v-model="filters.enabledOnly" active-text="仅启用" />
-          <el-button type="primary" style="margin-left:10px;" @click="openModal()">新增应用</el-button>
+          <el-button type="primary" @click="openModal()">新增应用</el-button>
         </div>
       </div>
     </template>
@@ -100,7 +102,3 @@ async function remove(row) {
 
 onMounted(load);
 </script>
-
-<style scoped>
-.toolbar { display:flex; justify-content: space-between; align-items: center; }
-</style>

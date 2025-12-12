@@ -1,12 +1,13 @@
 <template>
   <el-card>
     <template #header>
-      <div class="toolbar">
-        <el-select v-model="filters.appId" placeholder="应用" style="width:160px;">
+      <div class="cc-toolbar">
+        <div class="cc-toolbar__group">
+        <el-select v-model="filters.appId" placeholder="应用" class="cc-control--sm">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
-        <div class="type-tags" v-if="typeOptions.length">
-          <span class="tag-label">配置类型</span>
+        <div class="cc-tag-group" v-if="typeOptions.length">
+          <span class="cc-tag-label">配置类型</span>
           <el-check-tag
             v-for="t in typeOptions"
             :key="t.id"
@@ -16,11 +17,12 @@
             {{ `${t.type_name} (${t.type_code})` }}
           </el-check-tag>
         </div>
-        <el-input v-model="filters.keyword" placeholder="按字段Key/名称过滤" clearable style="width:200px;" />
+        <el-input v-model="filters.keyword" placeholder="按字段Key/名称过滤" clearable class="cc-control--md" />
+        </div>
         <el-button type="primary" @click="openModal()">新增字段</el-button>
       </div>
     </template>
-    <el-table :data="rowsFiltered" border style="width:100%;" :row-key="row => row.id" ref="tableRef">
+    <el-table :data="rowsFiltered" border class="cc-table-full" :row-key="row => row.id" ref="tableRef">
       <el-table-column label="排序" width="80">
         <template #default="scope">
           <span class="drag-handle">☰</span> {{ scope.row.sort_order ?? '-' }}
@@ -304,8 +306,5 @@ async function persistSortOrder(list, beforeSort) {
 </script>
 
 <style scoped>
-.toolbar { display:flex; align-items:center; gap:10px; flex-wrap: wrap; }
-.env-tags, .type-tags { display:flex; align-items:center; gap:6px; }
-.tag-label { color:#6b7280; font-size:12px; }
 .drag-handle { cursor:grab; user-select:none; }
 </style>

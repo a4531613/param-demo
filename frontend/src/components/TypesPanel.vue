@@ -1,17 +1,17 @@
 <template>
   <el-card>
     <template #header>
-      <div class="toolbar">
-        <div class="filters">
-          <el-input v-model="filters.keyword" placeholder="筛code / 名称过滤" style="width:200px;" clearable />
-          <el-select v-model="filters.appId" placeholder="应用" style="width:160px;">
+      <div class="cc-toolbar">
+        <div class="cc-toolbar__group">
+          <el-input v-model="filters.keyword" placeholder="筛code / 名称过滤" clearable class="cc-control--md" />
+          <el-select v-model="filters.appId" placeholder="应用" class="cc-control--sm">
             <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
           </el-select>
         </div>
         <el-button type="primary" @click="openModal()">新增类型</el-button>
       </div>
     </template>
-    <el-table :data="filtered" border style="width:100%;">
+    <el-table :data="filtered" border class="cc-table-full">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="type_code" label="TypeCode" width="160" />
       <el-table-column prop="type_name" label="名称" />
@@ -138,16 +138,3 @@ async function loadRefs() {
 
 loadRefs();
 </script>
-
-<style scoped>
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.filters {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-</style>

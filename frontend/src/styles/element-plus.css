@@ -1,0 +1,20 @@
+/* Element Plus theme alignment via CSS variables.
+   Keep overrides minimal to avoid surprises. */
+:root {
+  --el-color-primary: var(--cc-color-primary);
+  --el-color-danger: var(--cc-color-danger);
+  --el-color-success: var(--cc-color-success);
+  --el-color-warning: var(--cc-color-warning);
+
+  --el-border-color: var(--cc-color-border);
+  --el-text-color-primary: var(--cc-color-text);
+  --el-text-color-regular: #374151;
+  --el-text-color-secondary: var(--cc-color-muted);
+
+  --el-bg-color: var(--cc-color-surface);
+  --el-fill-color-blank: var(--cc-color-surface);
+  --el-fill-color-light: var(--cc-color-surface-2);
+
+  --el-border-radius-base: var(--cc-radius-md);
+}
+

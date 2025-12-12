@@ -1,7 +1,9 @@
 <template>
   <el-card>
-    <div class="toolbar">
-      <el-button @click="load">刷新</el-button>
+    <div class="cc-toolbar cc-toolbar--start">
+      <div class="cc-toolbar__group">
+        <el-button @click="load">刷新</el-button>
+      </div>
     </div>
     <el-table :data="rows" border>
       <el-table-column prop="id" label="ID" width="70" />
@@ -25,7 +27,3 @@ async function load() {
 }
 onMounted(load);
 </script>
-
-<style scoped>
-.toolbar { margin-bottom:10px; }
-</style>
