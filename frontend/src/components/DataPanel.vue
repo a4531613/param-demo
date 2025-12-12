@@ -57,11 +57,10 @@
     <el-empty v-if="!state.versionId" description="请选择版本以查看配置数据。" />
     <el-empty v-else-if="!state.envId || !state.typeId" description="请选择环境与配置类型。" />
     <div v-else>
-      <el-empty v-if="!displayedRows.length" description="暂无配置数据，可新增或导入。" />
-      <div v-if="!displayedRows.length" class="cc-empty-actions">
+      <el-empty v-if="!displayedRows.length && !newDrafts.length" description="暂无配置数据，可新增或导入。" />
+      <div v-if="!displayedRows.length && !newDrafts.length" class="cc-empty-actions">
         <el-button type="primary" @click="addInlineDraft()" :disabled="!capabilities.canWrite || isArchivedVersion">新增配置</el-button>
         <el-button @click="triggerImport" :disabled="!capabilities.canWrite || isArchivedVersion">导入</el-button>
-        <el-button @click="downloadAllHtml" :disabled="!state.appId || !state.versionId || !state.envId">导出HTML</el-button>
       </div>
       <div v-else class="data-form-list">
         <el-card v-for="d in newDrafts" :key="d.tempId" shadow="hover" class="data-card">

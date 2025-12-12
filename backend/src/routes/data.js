@@ -11,7 +11,7 @@ const { safeParseJson } = require('../utils/safeJson');
 function createDataRouter({ db }) {
   const router = express.Router();
 
-  function ensureKeyExistsAcrossEnvs({ versionId, appId, typeId, keyValue, actor, nowVal }) {
+  function ensureKeyExistsAcrossEnvs({ versionId, appId, typeId, keyValue, dataJson, status, actor, nowVal }) {
     if (!appId) return;
     const envIds = db.prepare(`SELECT id FROM environments WHERE app_id = ?`).all(appId).map((r) => r.id);
     if (!envIds.length) return;
@@ -27,8 +27,8 @@ function createDataRouter({ db }) {
           version_id: versionId,
           env_id: envId,
           key_value: keyValue,
-          data_json: JSON.stringify({}),
-          status: 'DISABLED',
+          data_json: JSON.stringify(dataJson || {}),
+          status: status || 'DISABLED',
           actor,
           now: nowVal
         });
@@ -110,6 +110,8 @@ function createDataRouter({ db }) {
         appId: version.app_id ?? null,
         typeId: body.typeId,
         keyValue: body.keyValue,
+        dataJson: body.dataJson || {},
+        status: body.status || 'ENABLED',
         actor,
         nowVal: nowIso()
       });
@@ -223,6 +225,8 @@ function createDataRouter({ db }) {
             appId: version.app_id ?? null,
             typeId,
             keyValue: key,
+            dataJson: data,
+            status: r.status || 'ENABLED',
             actor,
             nowVal
           });
