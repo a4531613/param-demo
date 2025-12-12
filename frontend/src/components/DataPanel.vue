@@ -260,6 +260,20 @@ async function save() {
   await load();
 }
 
+async function deleteAcrossEnvs() {
+  if (!modal.form.keyValue) return;
+  await ElMessageBox.confirm('确认删除该Key在所有环境的数据？', '提示');
+  const deletes = modal.envForms
+    .map((ef) => ef.recordId)
+    .filter(Boolean)
+    .map((id) => api.deleteData(id));
+  if (deletes.length) {
+    await Promise.all(deletes);
+  }
+  modal.visible = false;
+  await load();
+}
+
 async function remove(row) {
   await ElMessageBox.confirm('确认删除该记录？', '提示');
   await api.deleteData(row.id);
@@ -298,13 +312,14 @@ async function buildEnvForms(row) {
     const disabled = !version || version.status === 'ARCHIVED';
     let data = { ...baseDefault };
     let status = 'ENABLED';
+    let match = null;
     if (version) {
       if (env.id === state.envId && row) {
         data = { ...baseDefault, ...(row.parsed || {}) };
         status = row.status;
       } else if (key) {
         const list = await api.listData(version.id, state.typeId, env.id);
-        const match = list.find((item) => item.key_value === key);
+        match = list.find((item) => item.key_value === key) || null;
         if (match) {
           data = { ...baseDefault, ...(safeParse(match.data_json) || {}) };
           status = match.status || 'ENABLED';
@@ -322,7 +337,8 @@ async function buildEnvForms(row) {
       defaultData: { ...baseDefault },
       originalData: { ...data },
       originalStatus: status,
-      hasRecord: !!row || (!!key && data && JSON.stringify(data) !== JSON.stringify(baseDefault)),
+      hasRecord: !!row || (!!match),
+      recordId: match?.id || (env.id === state.envId ? row?.id || null : null),
       disabled
     });
   }
@@ -494,7 +510,7 @@ loadRefs();
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }
 .preview-key { font-size:18px; font-weight:600; color:#111827; }
-.env-form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; margin-top:8px; }
+.env-form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; margin-top:8px; }
 .env-card__header { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
 .env-card__title { font-weight:600; color:#111827; }
 .env-card__meta { display:flex; gap:6px; align-items:center; }
