@@ -133,20 +133,55 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="preview.visible" title="数据预览" width="620px">
+  <el-dialog v-model="preview.visible" title="数据预览" width="80vw">
     <div class="preview">
       <div class="preview-header">
         <div class="preview-key">{{ preview.row?.key_value || '—' }}</div>
-        <el-tag :type="preview.row?.status === 'ENABLED' ? 'success' : 'info'">
-          {{ preview.row?.status === 'ENABLED' ? '启用' : '停用' }}
-        </el-tag>
       </div>
-      <el-descriptions :column="1" border v-if="preview.row">
-        <el-descriptions-item label="数据ID">{{ preview.row.id }}</el-descriptions-item>
-        <el-descriptions-item v-for="f in fields" :key="f.field_code" :label="f.field_name">
-          {{ formatValue(preview.row.parsed?.[f.field_code]) }}
-        </el-descriptions-item>
-      </el-descriptions>
+      <div class="env-carousel">
+        <div class="env-carousel__header">
+          <div class="env-carousel__title">配置环境</div>
+          <div class="env-carousel__controls" v-if="preview.envForms.length > previewCarousel.pageSize">
+            <el-button circle size="small" @click="slidePreviewEnv(-1)" :disabled="!canPreviewSlidePrev">
+              <el-icon><ArrowLeft /></el-icon>
+            </el-button>
+            <el-button circle size="small" @click="slidePreviewEnv(1)" :disabled="!canPreviewSlideNext">
+              <el-icon><ArrowRight /></el-icon>
+            </el-button>
+          </div>
+        </div>
+        <div class="env-form-grid">
+          <el-card v-for="ef in visiblePreviewEnvForms" :key="ef.envId" shadow="hover" class="env-card">
+            <div class="env-card__header">
+              <div class="env-card__title">{{ ef.envName }} ({{ ef.envCode }})</div>
+              <div class="env-card__meta">
+                <el-tag size="small" type="info">版本ID: {{ ef.versionId || '—' }}</el-tag>
+                <el-tag size="small" :type="ef.versionStatus === 'ARCHIVED' ? 'info' : 'success'">
+                  {{ statusLabel(ef.versionStatus) || '未发布' }}
+                </el-tag>
+              </div>
+            </div>
+            <el-form label-width="110px" class="env-card__form">
+              <el-form-item label="启用">
+                <el-tag :type="ef.status === 'ENABLED' ? 'success' : 'info'">
+                  {{ ef.status === 'ENABLED' ? '启用' : '停用' }}
+                </el-tag>
+              </el-form-item>
+              <template v-for="f in fields" :key="f.field_code">
+                <el-form-item>
+                  <template #label>
+                    <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+                      <span class="form-label-ellipsis">{{ f.field_name }}</span>
+                    </el-tooltip>
+                  </template>
+                  <el-tag type="info">{{ formatValue(ef.data?.[f.field_code]) }}</el-tag>
+                </el-form-item>
+              </template>
+              <div v-if="!ef.hasRecord" class="env-card__disabled">暂无配置</div>
+            </el-form>
+          </el-card>
+        </div>
+      </div>
     </div>
     <template #footer>
       <el-button @click="preview.visible=false">关闭</el-button>
@@ -172,13 +207,11 @@ const displayedRows = computed(() =>
   showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value
 );
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '' }, envForms: [] });
-const preview = reactive({
-  visible: false,
-  row: null
-});
+const preview = reactive({ visible: false, row: null, envForms: [] });
 const importInput = ref(null);
 const selected = ref([]);
 const envCarousel = reactive({ start: 0, pageSize: 3 });
+const previewCarousel = reactive({ start: 0, pageSize: 3 });
 
 const envOptions = computed(() => envs.value.filter((e) => !state.appId || e.app_id === state.appId));
 const typeOptions = computed(() => props.types.filter((t) => !state.appId || t.app_id === state.appId));
@@ -200,6 +233,13 @@ const visibleEnvForms = computed(() =>
 const canSlidePrev = computed(() => envCarousel.start > 0);
 const canSlideNext = computed(
   () => envCarousel.start + envCarousel.pageSize < modal.envForms.length
+);
+const visiblePreviewEnvForms = computed(() =>
+  preview.envForms.slice(previewCarousel.start, previewCarousel.start + previewCarousel.pageSize)
+);
+const canPreviewSlidePrev = computed(() => previewCarousel.start > 0);
+const canPreviewSlideNext = computed(
+  () => previewCarousel.start + previewCarousel.pageSize < preview.envForms.length
 );
 const safeParse = (text) => {
   try { return JSON.parse(text); } catch (e) { return {}; }
@@ -232,6 +272,7 @@ function onTypeSelect(id) {
 
 async function openPreview(row) {
   preview.row = row;
+  await buildPreviewEnvForms(row);
   preview.visible = true;
 }
 
@@ -342,6 +383,11 @@ function slideEnv(step) {
   envCarousel.start = Math.min(Math.max(0, envCarousel.start + step), maxStart);
 }
 
+function slidePreviewEnv(step) {
+  const maxStart = Math.max(0, preview.envForms.length - previewCarousel.pageSize);
+  previewCarousel.start = Math.min(Math.max(0, previewCarousel.start + step), maxStart);
+}
+
 function adjustEnvCarouselStart(envForms) {
   const size = envCarousel.pageSize;
   const total = envForms.length;
@@ -352,6 +398,18 @@ function adjustEnvCarouselStart(envForms) {
   const desiredStart = (idx >= 0 ? idx - center : 0);
   const maxStart = Math.max(0, total - size);
   envCarousel.start = Math.min(Math.max(0, desiredStart), maxStart);
+}
+
+function adjustPreviewCarouselStart(envForms) {
+  const size = previewCarousel.pageSize;
+  const total = envForms.length;
+  if (!total) { previewCarousel.start = 0; return; }
+  if (total <= size) { previewCarousel.start = 0; return; }
+  const idx = envForms.findIndex((ef) => ef.envId === state.envId);
+  const center = Math.floor((size - 1) / 2);
+  const desiredStart = (idx >= 0 ? idx - center : 0);
+  const maxStart = Math.max(0, total - size);
+  previewCarousel.start = Math.min(Math.max(0, desiredStart), maxStart);
 }
 
 function onSelectionChange(list) {
@@ -408,6 +466,44 @@ async function buildEnvForms(row) {
   }
   adjustEnvCarouselStart(envForms);
   modal.envForms = envForms;
+}
+
+async function buildPreviewEnvForms(row) {
+  const key = row?.key_value || '';
+  const baseDefault = defaultData();
+  const envForms = [];
+  for (const env of envOptions.value) {
+    const version = selectedVersion.value;
+    let data = { ...baseDefault };
+    let status = 'ENABLED';
+    let match = null;
+    if (version) {
+      if (env.id === state.envId && row) {
+        data = { ...baseDefault, ...(row.parsed || {}) };
+        status = row.status;
+      } else if (key) {
+        const list = await api.listData(version.id, state.typeId, env.id);
+        match = list.find((item) => item.key_value === key) || null;
+        if (match) {
+          data = { ...baseDefault, ...(safeParse(match.data_json) || {}) };
+          status = match.status || 'ENABLED';
+        }
+      }
+    }
+    envForms.push({
+      envId: env.id,
+      envName: env.env_name,
+      envCode: env.env_code,
+      versionId: version?.id || null,
+      versionStatus: version?.status || null,
+      status,
+      data,
+      hasRecord: !!row || (!!match),
+      recordId: match?.id || (env.id === state.envId ? row?.id || null : null)
+    });
+  }
+  adjustPreviewCarouselStart(envForms);
+  preview.envForms = envForms;
 }
 
 function csvToRows(text) {
