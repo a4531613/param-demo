@@ -692,16 +692,15 @@ app.post('/api/versions/:versionId/fields', (req, res) => {
 
 // General fields API with app/env/type filters
 app.get('/api/fields', (req, res) => {
-  const { appId, envId, typeId, versionId } = req.query;
+  const { appId, typeId, versionId } = req.query;
   let sql = `
-    SELECT cf.*, t.app_id, t.env_id, t.type_code
+    SELECT cf.*, t.app_id, t.type_code
     FROM config_fields cf
     JOIN config_types t ON cf.type_id = t.id
     WHERE 1=1
   `;
   const params = [];
   if (appId) { sql += ` AND t.app_id = ?`; params.push(appId); }
-  if (envId) { sql += ` AND t.env_id = ?`; params.push(envId); }
   if (typeId) { sql += ` AND cf.type_id = ?`; params.push(typeId); }
   if (versionId) { sql += ` AND cf.version_id = ?`; params.push(versionId); }
   sql += ` ORDER BY cf.sort_order, cf.id DESC`;

@@ -5,17 +5,6 @@
         <el-select v-model="filters.appId" placeholder="应用" style="width:160px;">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
-        <div class="env-tags" v-if="envOptions.length">
-          <span class="tag-label">环境</span>
-          <el-check-tag
-            v-for="e in envOptions"
-            :key="e.id"
-            :checked="filters.envId === e.id"
-            @click="filters.envId = e.id"
-          >
-            {{ `${e.env_name} (${e.env_code})` }}
-          </el-check-tag>
-        </div>
         <div class="type-tags" v-if="typeOptions.length">
           <span class="tag-label">配置类型</span>
           <el-check-tag
@@ -43,7 +32,6 @@
       </el-table-column>
       <el-table-column prop="validate_rule" label="正则约束" />
       <el-table-column prop="app_id" label="应用ID" width="90" />
-      <el-table-column prop="env_id" label="环境ID" width="90" />
       <el-table-column prop="type_id" label="类型ID" width="90" />
       <el-table-column prop="enabled" label="启用" width="80">
         <template #default="s"><el-tag :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '是' : '否' }}</el-tag></template>
@@ -66,11 +54,6 @@
       <el-form-item label="所属应用">
         <el-select v-model="modal.form.appId">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="所属环境">
-        <el-select v-model="modal.form.envId">
-          <el-option v-for="e in modalEnvOptions" :key="e.id" :label="`${e.env_name} (${e.env_code})`" :value="e.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable>
@@ -108,30 +91,25 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 
 const apps = reactive([]);
-const envs = reactive([]);
 const types = reactive([]);
 const rows = reactive([]);
-const filters = reactive({ appId: null, envId: null, typeId: null, keyword: '' });
+const filters = reactive({ appId: null, typeId: null, keyword: '' });
 const modal = reactive({
   visible: false,
   editId: null,
-  form: { appId: null, envId: null, typeId: null, fieldCode: '', fieldName: '', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
+  form: { appId: null, typeId: null, fieldCode: '', fieldName: '', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
 });
 
-const envOptions = computed(() => envs.filter((e) => (!filters.appId || e.app_id === filters.appId)));
 const typeOptions = computed(() =>
   types.filter(
     (t) =>
-      (!filters.appId || t.app_id === filters.appId) &&
-      (!filters.envId || !t.env_id || t.env_id === filters.envId)
+      (!filters.appId || t.app_id === filters.appId)
   )
 );
-const modalEnvOptions = computed(() => envs.filter((e) => !modal.form.appId || e.app_id === modal.form.appId));
 const modalTypeOptions = computed(() =>
   types.filter(
     (t) =>
-      (!modal.form.appId || t.app_id === modal.form.appId) &&
-      (!modal.form.envId || !t.env_id || t.env_id === modal.form.envId)
+      (!modal.form.appId || t.app_id === modal.form.appId)
   )
 );
 
@@ -139,18 +117,14 @@ const rowsFiltered = computed(() => {
   const kw = filters.keyword.toLowerCase();
   return rows.filter((r) => {
     const okApp = !filters.appId || r.app_id === filters.appId;
-    const okEnv = !filters.envId || r.env_id === filters.envId;
     const okType = !filters.typeId || r.type_id === filters.typeId;
     const okKw = !kw || r.field_code.toLowerCase().includes(kw) || (r.field_name || '').toLowerCase().includes(kw);
-    return okApp && okEnv && okType && okKw;
+    return okApp && okType && okKw;
   });
 });
 
 function ensureDefaults() {
   if (!filters.appId && apps.length) filters.appId = apps[0].id;
-  if (!envOptions.value.find((e) => e.id === filters.envId)) {
-    filters.envId = envOptions.value[0]?.id || null;
-  }
   if (!typeOptions.value.find((t) => t.id === filters.typeId)) {
     filters.typeId = typeOptions.value[0]?.id || null;
   }
@@ -158,7 +132,6 @@ function ensureDefaults() {
 
 async function loadRefs() {
   apps.splice(0, apps.length, ...(await api.listApps()));
-  envs.splice(0, envs.length, ...(await api.listEnvs()));
   types.splice(0, types.length, ...(await api.listTypes()));
   ensureDefaults();
 }
@@ -166,7 +139,6 @@ async function loadRefs() {
 async function loadFields() {
   const params = {};
   if (filters.appId) params.appId = filters.appId;
-  if (filters.envId) params.envId = filters.envId;
   if (filters.typeId) params.typeId = filters.typeId;
   const list = await api.listFieldsAll(params);
   rows.splice(0, rows.length, ...list);
@@ -177,7 +149,6 @@ function openModal(row) {
     modal.editId = row.id;
     modal.form = {
       appId: row.app_id,
-      envId: row.env_id,
       typeId: row.type_id,
       fieldCode: row.field_code,
       fieldName: row.field_name,
@@ -193,7 +164,6 @@ function openModal(row) {
     modal.editId = null;
     modal.form = {
       appId: filters.appId || (apps[0] && apps[0].id) || null,
-      envId: filters.envId || null,
       typeId: filters.typeId || null,
       fieldCode: '',
       fieldName: '',
@@ -247,17 +217,6 @@ watch(
 );
 
 watch(
-  () => filters.envId,
-  async () => {
-    // cascade type with env
-    if (!typeOptions.value.find((t) => t.id === filters.typeId)) {
-      filters.typeId = typeOptions.value[0]?.id || null;
-    }
-    await loadFields();
-  }
-);
-
-watch(
   () => filters.typeId,
   async () => {
     await loadFields();
@@ -271,18 +230,8 @@ watch(
   }
 );
 
-watch(
-  () => modal.form.envId,
-  () => {
-    ensureModalDefaults();
-  }
-);
-
 function ensureModalDefaults() {
   if (!modal.form.appId && apps.length) modal.form.appId = apps[0].id;
-  if (!modalEnvOptions.value.find((e) => e.id === modal.form.envId)) {
-    modal.form.envId = modalEnvOptions.value[0]?.id || null;
-  }
   if (!modalTypeOptions.value.find((t) => t.id === modal.form.typeId)) {
     modal.form.typeId = modalTypeOptions.value[0]?.id || null;
   }
