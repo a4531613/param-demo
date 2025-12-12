@@ -6,9 +6,11 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
+const PDFDocument = require('pdfkit');
 
 const DB_PATH = path.join(__dirname, 'config-center.db');
 const db = new Database(DB_PATH);
@@ -961,6 +963,124 @@ app.get('/api/versions/:versionId/data/export', (req, res) => {
   res.send(csv);
 });
 
+app.get('/api/export/pdf', (req, res) => {
+  const appId = Number(req.query.appId);
+  const versionId = Number(req.query.versionId);
+  const envId = Number(req.query.envId);
+  if (!appId) return res.status(400).json({ error: 'appId required' });
+  if (!versionId) return res.status(400).json({ error: 'versionId required' });
+  if (!envId) return res.status(400).json({ error: 'envId required' });
+
+  const appRow = db.prepare(`SELECT id, app_code, app_name FROM applications WHERE id = ?`).get(appId);
+  if (!appRow) return res.status(404).json({ error: 'app not found' });
+  const versionRow = db.prepare(`SELECT id, app_id, version_no, status, release_time FROM config_versions WHERE id = ?`).get(versionId);
+  if (!versionRow) return res.status(404).json({ error: 'version not found' });
+  if ((versionRow.app_id ?? null) !== appRow.id) return res.status(400).json({ error: 'version not belong to app' });
+  const envRow = db.prepare(`SELECT id, app_id, env_code, env_name FROM environments WHERE id = ?`).get(envId);
+  if (!envRow) return res.status(404).json({ error: 'env not found' });
+  if ((envRow.app_id ?? null) !== appRow.id) return res.status(400).json({ error: 'env not belong to app' });
+
+  const types = db
+    .prepare(
+      `SELECT id, type_code, type_name, sort_order
+       FROM config_types
+       WHERE app_id = ? AND (env_id = ? OR env_id IS NULL)
+       ORDER BY sort_order, id`
+    )
+    .all(appRow.id, envRow.id);
+
+  const dataByTypeId = new Map();
+  types.forEach((t) => dataByTypeId.set(t.id, []));
+  const rows = db
+    .prepare(
+      `SELECT cd.type_id, cd.key_value, cd.data_json, cd.status
+       FROM config_data cd
+       JOIN config_types t ON cd.type_id = t.id
+       WHERE cd.version_id = ? AND cd.env_id = ? AND t.app_id = ?
+       ORDER BY t.sort_order, t.id, cd.key_value`
+    )
+    .all(versionRow.id, envRow.id, appRow.id);
+  rows.forEach((r) => {
+    if (!dataByTypeId.has(r.type_id)) dataByTypeId.set(r.type_id, []);
+    dataByTypeId.get(r.type_id).push(r);
+  });
+
+  const title = '配置导出';
+  const fileBase = safeFilename(`config_${appRow.app_code || appRow.id}_v${versionRow.version_no || versionRow.id}_env${envRow.env_code || envRow.id}`);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.pdf"`);
+
+  const doc = new PDFDocument({ size: 'A4', margin: 50 });
+  doc.on('error', () => { try { res.end(); } catch { /* ignore */ } });
+  doc.pipe(res);
+
+  let fontLoaded = false;
+  for (const fontPath of resolvePdfFontPaths()) {
+    try {
+      doc.font(fontPath);
+      fontLoaded = true;
+      break;
+    } catch {
+      // try next
+    }
+  }
+  if (!fontLoaded) doc.font('Helvetica');
+
+  const primary = '#111827';
+  const muted = '#6b7280';
+  const border = '#e5e7eb';
+  const pageBottom = () => doc.page.height - doc.page.margins.bottom;
+  const ensureSpace = (minSpace = 40) => {
+    if (doc.y + minSpace > pageBottom()) doc.addPage();
+  };
+
+  doc.fillColor(primary).fontSize(18).text(title);
+  doc.moveDown(0.25);
+  doc.fillColor(muted).fontSize(10).text(`应用：${appRow.app_name || ''} (${appRow.app_code || appRow.id})`);
+  doc.fillColor(muted).fontSize(10).text(`版本：${versionRow.version_no || versionRow.id}  状态：${versionRow.status || '-'}`);
+  doc.fillColor(muted).fontSize(10).text(`环境：${envRow.env_name || ''} (${envRow.env_code || envRow.id})`);
+  doc.fillColor(muted).fontSize(10).text(`导出时间：${new Date().toISOString()}`);
+  doc.moveDown(0.6);
+  doc.strokeColor(border).lineWidth(1).moveTo(doc.page.margins.left, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).stroke();
+  doc.moveDown(0.8);
+
+  types.forEach((t) => {
+    ensureSpace(80);
+    doc.fillColor(primary).fontSize(13).text(`${t.type_name || ''} (${t.type_code || t.id})`);
+    doc.moveDown(0.3);
+
+    const list = dataByTypeId.get(t.id) || [];
+    if (!list.length) {
+      doc.fillColor(muted).fontSize(10).text('暂无配置');
+      doc.moveDown(0.8);
+      return;
+    }
+
+    list.forEach((r, idx) => {
+      ensureSpace(90);
+      const header = `${r.key_value || ''}`;
+      doc.fillColor(primary).fontSize(11).text(header);
+      doc.fillColor(muted).fontSize(9).text(`状态：${r.status || '-'}`);
+      const obj = safeParse(r.data_json);
+      const pretty = typeof obj === 'string' ? String(obj) : JSON.stringify(obj || {}, null, 2);
+      doc.moveDown(0.2);
+      doc.fillColor(primary).fontSize(9).text(pretty, {
+        width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+        lineGap: 2
+      });
+      doc.moveDown(0.35);
+      if (idx !== list.length - 1) {
+        doc.strokeColor(border).lineWidth(0.5).moveTo(doc.page.margins.left, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).stroke();
+        doc.moveDown(0.5);
+      }
+    });
+
+    doc.moveDown(0.8);
+  });
+
+  doc.end();
+});
+
 app.post('/api/versions/:versionId/data/import', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const versionId = Number(req.params.versionId);
@@ -1109,6 +1229,42 @@ app.get('/api/audit', (req, res) => {
 
 function safeParse(text) {
   try { return JSON.parse(text); } catch (e) { return text; }
+}
+
+function safeFilename(name) {
+  const base = String(name || 'file')
+    .replace(/[^\w.\-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return base || 'file';
+}
+
+function resolvePdfFontPaths() {
+  const envPath = process.env.PDF_FONT_PATH;
+  if (envPath) {
+    try {
+      if (fs.existsSync(envPath)) return [envPath];
+    } catch {
+      // ignore
+    }
+  }
+
+  const winDir = process.env.WINDIR || 'C:\\Windows';
+  const candidates = [
+    // Prefer standalone TTF first (PDFKit is more reliable than TTC on some setups).
+    path.join(winDir, 'Fonts', 'simhei.ttf'), // 黑体
+    path.join(winDir, 'Fonts', 'msyh.ttf'), // 微软雅黑 (rarely present)
+    path.join(winDir, 'Fonts', 'arialuni.ttf'), // Arial Unicode (if present)
+    // TTC fallbacks
+    path.join(winDir, 'Fonts', 'msyh.ttc'), // 微软雅黑 TTC
+    path.join(winDir, 'Fonts', 'simsun.ttc'), // 宋体 TTC
+    // Last resort (no CJK)
+    path.join(winDir, 'Fonts', 'arial.ttf')
+  ];
+
+  return candidates.filter((p) => {
+    try { return fs.existsSync(p); } catch { return false; }
+  });
 }
 
 // --- Static (serve frontend build if exists) ----------------------------- //
