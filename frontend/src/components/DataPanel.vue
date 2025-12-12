@@ -283,11 +283,27 @@ async function remove(row) {
 async function batchRemove() {
   if (!selected.value.length) return;
   await ElMessageBox.confirm(`确认删除选中的 ${selected.value.length} 条记录？`, '提示');
-  for (const row of selected.value) {
-    await api.deleteData(row.id);
+  const keysToDelete = [...new Set(selected.value.map((r) => r.key_value))];
+  const ids = await collectIdsAcrossEnvs(keysToDelete);
+  for (const id of ids) {
+    await api.deleteData(id);
   }
   selected.value = [];
   await load();
+}
+
+async function collectIdsAcrossEnvs(keys) {
+  if (!keys?.length || !state.versionId || !state.typeId) return [];
+  const keySet = new Set(keys);
+  const envIds = envOptions.value.map((e) => e.id).filter(Boolean);
+  if (!envIds.length) return [];
+  const all = await Promise.all(
+    envIds.map(async (envId) => {
+      const list = await api.listData(state.versionId, state.typeId, envId);
+      return list.filter((item) => keySet.has(item.key_value)).map((item) => item.id);
+    })
+  );
+  return [...new Set(all.flat())];
 }
 
 function onSelectionChange(list) {
