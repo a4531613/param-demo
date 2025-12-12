@@ -24,15 +24,14 @@
       <el-table-column prop="id" label="字段ID" width="90" />
       <el-table-column prop="field_code" label="字段Key" width="140" />
       <el-table-column prop="field_name" label="字段名称" />
-      <el-table-column prop="type_id" label="配置类型ID" width="110" />
+      <!-- 配置类型ID隐藏 -->
       <el-table-column prop="data_type" label="类型" width="120" />
       <el-table-column prop="max_length" label="长度" width="80" />
       <el-table-column prop="required" label="必填" width="70">
         <template #default="s"><el-tag :type="s.row.required ? 'danger' : 'info'">{{ s.row.required ? '是' : '否' }}</el-tag></template>
       </el-table-column>
       <el-table-column prop="validate_rule" label="正则约束" />
-      <el-table-column prop="app_id" label="应用ID" width="90" />
-      <el-table-column prop="type_id" label="类型ID" width="90" />
+      <!-- 应用ID、类型ID隐藏 -->
       <el-table-column prop="enabled" label="启用" width="80">
         <template #default="s"><el-tag :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '是' : '否' }}</el-tag></template>
       </el-table-column>
@@ -52,11 +51,11 @@
   <el-dialog v-model="modal.visible" :title="modal.editId ? '编辑字段' : '新增字段'" width="540px">
     <el-form :model="modal.form" label-width="130px">
       <el-form-item label="所属应用">
-        <el-select v-model="modal.form.appId">
+        <el-select v-model="modal.form.appId" :disabled="true">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
       </el-form-item>
-      <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable>
+      <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable :disabled="true">
         <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
       </el-select></el-form-item>
       <el-form-item label="字段Key"><el-input v-model="modal.form.fieldCode" :disabled="!!modal.editId" /></el-form-item>
@@ -164,7 +163,7 @@ function openModal(row) {
     modal.editId = null;
     modal.form = {
       appId: filters.appId || (apps[0] && apps[0].id) || null,
-      typeId: filters.typeId || null,
+      typeId: filters.typeId || (typeOptions.value[0] && typeOptions.value[0].id) || null,
       fieldCode: '',
       fieldName: '',
       dataType: 'string',
