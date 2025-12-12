@@ -24,6 +24,7 @@
         <el-button type="danger" @click="batchRemove" :disabled="!selected.length || isArchivedVersion">批量删除</el-button>
         <el-button @click="downloadTemplate" :disabled="!state.versionId">下载模板</el-button>
         <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
+        <el-button type="success" plain @click="openVersionPreview" :disabled="!state.versionId">一键预览</el-button>
         <input type="file" ref="importInput" style="display:none;" accept=".csv,text/csv" @change="handleImport" />
         <el-button @click="triggerImport" :disabled="isArchivedVersion || !state.versionId">导入</el-button>
         <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
@@ -187,6 +188,150 @@
       <el-button @click="preview.visible=false">关闭</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog v-model="versionPreview.visible" title="版本配置预览" width="80vw">
+    <div class="version-preview">
+      <div class="version-preview__toolbar">
+        <el-tag type="info">当前版本：{{ selectedVersion?.version_no || '—' }}</el-tag>
+        <el-select v-model="versionPreview.baseId" placeholder="对比基线版本（可选）" style="width:280px" @change="loadVersionPreview">
+          <el-option :value="null" label="无对比（只看当前）" />
+          <el-option
+            v-for="v in baselineVersionOptions"
+            :key="v.id"
+            :label="`${v.version_no} (${statusLabel(v.status)})`"
+            :value="v.id"
+          />
+        </el-select>
+        <el-input v-model="versionPreview.filter" clearable placeholder="搜索 Key/环境" style="width:260px" />
+        <el-button @click="loadVersionPreview" :loading="versionPreview.loading" :disabled="!versionPreview.targetId">刷新</el-button>
+      </div>
+
+      <div class="version-preview__stats">
+        <el-tag type="success">新增 {{ versionPreviewCounts.added }}</el-tag>
+        <el-tag type="warning">修改 {{ versionPreviewCounts.changed }}</el-tag>
+        <el-tag type="info">全部 {{ versionPreviewCounts.current }}</el-tag>
+        <el-tag v-if="versionPreview.baseId" type="danger">删除 {{ versionPreviewCounts.removed }}</el-tag>
+      </div>
+
+      <el-tabs v-model="versionPreview.tab" class="version-preview__tabs">
+        <el-tab-pane name="changed" label="变更">
+          <el-table :data="versionPreviewChangedRows" border v-loading="versionPreview.loading" row-key="diffKey">
+            <el-table-column type="expand">
+              <template #default="scope">
+                <div class="version-preview__expand">
+                  <div v-if="scope.row.changeType === 'changed'" class="version-preview__diffgrid">
+                    <div>
+                      <div class="version-preview__diff-title">之前</div>
+                      <pre class="json-block">{{ scope.row.beforePretty }}</pre>
+                    </div>
+                    <div>
+                      <div class="version-preview__diff-title">现在</div>
+                      <pre class="json-block">{{ scope.row.afterPretty }}</pre>
+                    </div>
+                    <el-table v-if="scope.row.changedFields?.length" :data="scope.row.changedFields" size="small" class="version-preview__fielddiff">
+                      <el-table-column prop="field" label="字段" width="200" />
+                      <el-table-column prop="before" label="之前" />
+                      <el-table-column prop="after" label="现在" />
+                    </el-table>
+                  </div>
+                  <div v-else>
+                    <pre class="json-block">{{ scope.row.afterPretty }}</pre>
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="envLabel" label="环境" width="180" />
+            <el-table-column prop="key" label="Key" min-width="220" />
+            <el-table-column label="变更" width="110">
+              <template #default="scope">
+                <el-tag v-if="scope.row.changeType === 'added'" type="success">新增</el-tag>
+                <el-tag v-else-if="scope.row.changeType === 'changed'" type="warning">修改</el-tag>
+                <el-tag v-else type="info">—</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="变化字段" width="110">
+              <template #default="scope">{{ scope.row.changedFields?.length || '—' }}</template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane name="added" label="新增">
+          <el-table :data="versionPreviewAddedRows" border v-loading="versionPreview.loading" row-key="diffKey">
+            <el-table-column type="expand">
+              <template #default="scope">
+                <pre class="json-block">{{ scope.row.afterPretty }}</pre>
+              </template>
+            </el-table-column>
+            <el-table-column prop="envLabel" label="环境" width="180" />
+            <el-table-column prop="key" label="Key" min-width="220" />
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane name="updated" label="修改">
+          <el-table :data="versionPreviewOnlyChangedRows" border v-loading="versionPreview.loading" row-key="diffKey">
+            <el-table-column type="expand">
+              <template #default="scope">
+                <div class="version-preview__expand version-preview__diffgrid">
+                  <div>
+                    <div class="version-preview__diff-title">之前</div>
+                    <pre class="json-block">{{ scope.row.beforePretty }}</pre>
+                  </div>
+                  <div>
+                    <div class="version-preview__diff-title">现在</div>
+                    <pre class="json-block">{{ scope.row.afterPretty }}</pre>
+                  </div>
+                  <el-table v-if="scope.row.changedFields?.length" :data="scope.row.changedFields" size="small" class="version-preview__fielddiff">
+                    <el-table-column prop="field" label="字段" width="200" />
+                    <el-table-column prop="before" label="之前" />
+                    <el-table-column prop="after" label="现在" />
+                  </el-table>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="envLabel" label="环境" width="180" />
+            <el-table-column prop="key" label="Key" min-width="220" />
+            <el-table-column label="变化字段" width="110">
+              <template #default="scope">{{ scope.row.changedFields?.length || '—' }}</template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane name="all" label="全部">
+          <el-table :data="versionPreviewCurrentRows" border v-loading="versionPreview.loading" row-key="diffKey">
+            <el-table-column type="expand">
+              <template #default="scope">
+                <pre class="json-block">{{ scope.row.afterPretty }}</pre>
+              </template>
+            </el-table-column>
+            <el-table-column prop="envLabel" label="环境" width="180" />
+            <el-table-column prop="key" label="Key" min-width="220" />
+            <el-table-column label="标记" width="110">
+              <template #default="scope">
+                <el-tag v-if="scope.row.changeType === 'added'" type="success">新增</el-tag>
+                <el-tag v-else-if="scope.row.changeType === 'changed'" type="warning">修改</el-tag>
+                <el-tag v-else type="info">无变化</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane v-if="versionPreview.baseId" name="removed" label="删除">
+          <el-table :data="versionPreviewRemovedRows" border v-loading="versionPreview.loading" row-key="diffKey">
+            <el-table-column type="expand">
+              <template #default="scope">
+                <pre class="json-block">{{ scope.row.beforePretty }}</pre>
+              </template>
+            </el-table-column>
+            <el-table-column prop="envLabel" label="环境" width="180" />
+            <el-table-column prop="key" label="Key" min-width="220" />
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
+    </div>
+    <template #footer>
+      <el-button @click="versionPreview.visible=false">关闭</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -208,6 +353,15 @@ const displayedRows = computed(() =>
 );
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '' }, envForms: [] });
 const preview = reactive({ visible: false, row: null, envForms: [] });
+const versionPreview = reactive({
+  visible: false,
+  loading: false,
+  targetId: null,
+  baseId: null,
+  tab: 'changed',
+  filter: '',
+  rows: []
+});
 const importInput = ref(null);
 const selected = ref([]);
 const envCarousel = reactive({ start: 0, pageSize: 3 });
@@ -227,6 +381,9 @@ const isArchivedVersion = computed(() => selectedVersion.value?.status === 'ARCH
 const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
 const statusLabel = (s) => statusLabelMap[s] || s;
 const versionLabel = (v) => statusLabelMap[v?.status] || v?.status || '—';
+const baselineVersionOptions = computed(() =>
+  versionOptions.value.filter((v) => v.id !== state.versionId)
+);
 const visibleEnvForms = computed(() =>
   modal.envForms.slice(envCarousel.start, envCarousel.start + envCarousel.pageSize)
 );
@@ -244,6 +401,44 @@ const canPreviewSlideNext = computed(
 const safeParse = (text) => {
   try { return JSON.parse(text); } catch (e) { return {}; }
 };
+const envLabelById = computed(() => new Map(envs.value.map((e) => [e.id, `${e.env_name} (${e.env_code})`])));
+
+const versionPreviewCounts = computed(() => {
+  const rows = versionPreview.rows || [];
+  return {
+    added: rows.filter((r) => r.changeType === 'added').length,
+    changed: rows.filter((r) => r.changeType === 'changed').length,
+    removed: rows.filter((r) => r.changeType === 'removed').length,
+    current: rows.filter((r) => r.changeType !== 'removed').length
+  };
+});
+
+const versionPreviewFilteredRows = computed(() => {
+  const q = (versionPreview.filter || '').trim().toLowerCase();
+  if (!q) return versionPreview.rows;
+  return versionPreview.rows.filter((r) => {
+    const key = (r.key || '').toLowerCase();
+    const envLabel = (r.envLabel || '').toLowerCase();
+    return key.includes(q) || envLabel.includes(q);
+  });
+});
+
+const versionPreviewChangedRows = computed(() =>
+  versionPreviewFilteredRows.value.filter((r) => r.changeType === 'added' || r.changeType === 'changed')
+);
+const versionPreviewAddedRows = computed(() =>
+  versionPreviewFilteredRows.value.filter((r) => r.changeType === 'added')
+);
+const versionPreviewOnlyChangedRows = computed(() =>
+  versionPreviewFilteredRows.value.filter((r) => r.changeType === 'changed')
+);
+const versionPreviewCurrentRows = computed(() =>
+  versionPreviewFilteredRows.value.filter((r) => r.changeType !== 'removed')
+);
+const versionPreviewRemovedRows = computed(() =>
+  versionPreviewFilteredRows.value.filter((r) => r.changeType === 'removed')
+);
+
 const formatValue = (v) => {
   if (v === undefined || v === null || v === '') return '—';
   if (typeof v === 'object') return JSON.stringify(v);
@@ -274,6 +469,157 @@ async function openPreview(row) {
   preview.row = row;
   await buildPreviewEnvForms(row);
   preview.visible = true;
+}
+
+function guessBaseVersionId(targetId) {
+  const sorted = [...versionOptions.value].sort((a, b) => a.id - b.id);
+  const idx = sorted.findIndex((v) => v.id === targetId);
+  if (idx > 0) return sorted[idx - 1].id;
+  const fallback = sorted.find((v) => v.id !== targetId);
+  return fallback?.id || null;
+}
+
+function jsonPretty(obj) {
+  try { return JSON.stringify(obj ?? {}, null, 2); } catch { return String(obj ?? ''); }
+}
+
+function makeDiffKey(row) {
+  const typeId = row?.type_id ?? row?.typeId ?? '';
+  const envId = row?.env_id ?? row?.envId ?? '';
+  const key = row?.key_value ?? row?.keyValue ?? row?.key ?? '';
+  return `${typeId}|${envId}|${key}`;
+}
+
+function toComparable(v) {
+  if (v === undefined) return '__undefined__';
+  if (v === null) return '__null__';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+function computeFieldDiff(beforeObj, afterObj) {
+  const before = beforeObj || {};
+  const after = afterObj || {};
+  const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+  return keys
+    .map((field) => ({ field, before: before[field], after: after[field] }))
+    .filter((x) => toComparable(x.before) !== toComparable(x.after))
+    .map((x) => ({ field: x.field, before: formatValue(x.before), after: formatValue(x.after) }));
+}
+
+async function openVersionPreview() {
+  if (!state.versionId) return ElMessage.warning('请选择版本');
+  versionPreview.targetId = state.versionId;
+  versionPreview.baseId = guessBaseVersionId(state.versionId);
+  versionPreview.tab = 'changed';
+  versionPreview.filter = '';
+  versionPreview.visible = true;
+  await loadVersionPreview();
+}
+
+async function loadVersionPreview() {
+  if (!versionPreview.targetId) return;
+  try {
+    versionPreview.loading = true;
+    const targetId = versionPreview.targetId;
+    const baseId = versionPreview.baseId;
+    const [currentAll, diffRes] = await Promise.all([
+      api.listVersionDataAll(targetId),
+      baseId ? api.diffVersions(baseId, targetId) : Promise.resolve({ data: { added: [], removed: [], changed: [] } })
+    ]);
+
+    const currentMap = new Map();
+    currentAll.forEach((r) => {
+      const diffKey = makeDiffKey(r);
+      const afterObj = safeParse(r.data_json);
+      currentMap.set(diffKey, {
+        diffKey,
+        typeId: r.type_id,
+        envId: r.env_id,
+        envLabel: envLabelById.value.get(r.env_id) || `Env ${r.env_id}`,
+        key: r.key_value,
+        status: r.status,
+        changeType: 'unchanged',
+        beforeObj: null,
+        afterObj,
+        beforePretty: '',
+        afterPretty: jsonPretty(afterObj),
+        changedFields: []
+      });
+    });
+
+    (diffRes?.data?.added || []).forEach((r) => {
+      const diffKey = r.diff_key || makeDiffKey(r);
+      const afterObj = safeParse(r.data_json);
+      const row = currentMap.get(diffKey) || {
+        diffKey,
+        typeId: r.type_id,
+        envId: r.env_id,
+        envLabel: envLabelById.value.get(r.env_id) || `Env ${r.env_id}`,
+        key: r.key_value,
+        status: r.status,
+        beforeObj: null
+      };
+      currentMap.set(diffKey, {
+        ...row,
+        changeType: 'added',
+        afterObj,
+        afterPretty: jsonPretty(afterObj),
+        changedFields: []
+      });
+    });
+
+    (diffRes?.data?.changed || []).forEach((pair) => {
+      const beforeRow = pair.before || {};
+      const afterRow = pair.after || {};
+      const diffKey = afterRow.diff_key || beforeRow.diff_key || makeDiffKey(afterRow) || makeDiffKey(beforeRow);
+      const beforeObj = safeParse(beforeRow.data_json);
+      const afterObj = safeParse(afterRow.data_json);
+      const row = currentMap.get(diffKey) || {
+        diffKey,
+        typeId: afterRow.type_id ?? beforeRow.type_id,
+        envId: afterRow.env_id ?? beforeRow.env_id,
+        envLabel: envLabelById.value.get(afterRow.env_id ?? beforeRow.env_id) || `Env ${afterRow.env_id ?? beforeRow.env_id}`,
+        key: afterRow.key_value ?? beforeRow.key_value,
+        status: afterRow.status ?? beforeRow.status
+      };
+      currentMap.set(diffKey, {
+        ...row,
+        changeType: 'changed',
+        beforeObj,
+        afterObj,
+        beforePretty: jsonPretty(beforeObj),
+        afterPretty: jsonPretty(afterObj),
+        changedFields: computeFieldDiff(beforeObj, afterObj)
+      });
+    });
+
+    (diffRes?.data?.removed || []).forEach((r) => {
+      const diffKey = r.diff_key || makeDiffKey(r);
+      const beforeObj = safeParse(r.data_json);
+      if (currentMap.has(diffKey)) return;
+      currentMap.set(diffKey, {
+        diffKey,
+        typeId: r.type_id,
+        envId: r.env_id,
+        envLabel: envLabelById.value.get(r.env_id) || `Env ${r.env_id}`,
+        key: r.key_value,
+        status: r.status,
+        changeType: 'removed',
+        beforeObj,
+        afterObj: null,
+        beforePretty: jsonPretty(beforeObj),
+        afterPretty: '',
+        changedFields: []
+      });
+    });
+
+    versionPreview.rows = [...currentMap.values()].sort((a, b) => (a.envId ?? 0) - (b.envId ?? 0) || String(a.key).localeCompare(String(b.key)));
+  } catch (e) {
+    ElMessage.error(e?.message || '加载失败');
+  } finally {
+    versionPreview.loading = false;
+  }
 }
 
 async function openModal(row) {
@@ -684,4 +1030,12 @@ loadRefs();
 .env-card__disabled { color:#9ca3af; font-size:12px; margin-top:4px; }
 .table-header-ellipsis { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
 .form-label-ellipsis { display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
+.version-preview { display:flex; flex-direction:column; gap:10px; }
+.version-preview__toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.version-preview__stats { display:flex; gap:8px; flex-wrap:wrap; }
+.version-preview__expand { padding:10px 0; }
+.version-preview__diffgrid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+.version-preview__diff-title { font-size:12px; color:#6b7280; margin-bottom:6px; }
+.version-preview__fielddiff { margin-top:10px; }
+.json-block { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin:0; max-height:320px; overflow:auto; font-size:12px; line-height:1.4; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 </style>

@@ -658,11 +658,29 @@ app.delete('/api/versions/:id', (req, res) => {
 app.get('/api/versions/:a/diff/:b', (req, res) => {
   const a = Number(req.params.a);
   const b = Number(req.params.b);
-  const fieldsA = db.prepare(`SELECT field_code, data_type, required, max_length, validate_rule, enum_options FROM config_fields WHERE version_id = ?`).all(a);
-  const fieldsB = db.prepare(`SELECT field_code, data_type, required, max_length, validate_rule, enum_options FROM config_fields WHERE version_id = ?`).all(b);
-  const dataA = db.prepare(`SELECT key_value, data_json FROM config_data WHERE version_id = ?`).all(a);
-  const dataB = db.prepare(`SELECT key_value, data_json FROM config_data WHERE version_id = ?`).all(b);
-  res.json({ fields: diffList(fieldsA, fieldsB, 'field_code'), data: diffList(dataA, dataB, 'key_value') });
+  const verA = db.prepare(`SELECT id, app_id FROM config_versions WHERE id = ?`).get(a);
+  const verB = db.prepare(`SELECT id, app_id FROM config_versions WHERE id = ?`).get(b);
+  if (!verA || !verB) return res.status(404).json({ error: 'version not found' });
+  if ((verA.app_id ?? null) !== (verB.app_id ?? null)) return res.status(400).json({ error: 'versions must belong to same app' });
+
+  const fieldsSql = `
+    SELECT cf.type_id, cf.field_code, cf.data_type, cf.required, cf.max_length, cf.validate_rule, cf.enum_options
+    FROM config_fields cf
+    JOIN config_types t ON cf.type_id = t.id
+    WHERE t.app_id IS ?
+    ORDER BY cf.type_id, cf.sort_order, cf.id
+  `;
+  const fieldsA = db.prepare(fieldsSql).all(verA.app_id ?? null).map((r) => ({ ...r, diff_key: `${r.type_id ?? ''}|${r.field_code}` }));
+  const fieldsB = db.prepare(fieldsSql).all(verB.app_id ?? null).map((r) => ({ ...r, diff_key: `${r.type_id ?? ''}|${r.field_code}` }));
+  const dataA = db
+    .prepare(`SELECT type_id, env_id, key_value, data_json, status FROM config_data WHERE version_id = ?`)
+    .all(a)
+    .map((r) => ({ ...r, diff_key: `${r.type_id ?? ''}|${r.env_id ?? ''}|${r.key_value}` }));
+  const dataB = db
+    .prepare(`SELECT type_id, env_id, key_value, data_json, status FROM config_data WHERE version_id = ?`)
+    .all(b)
+    .map((r) => ({ ...r, diff_key: `${r.type_id ?? ''}|${r.env_id ?? ''}|${r.key_value}` }));
+  res.json({ fields: diffList(fieldsA, fieldsB, 'diff_key'), data: diffList(dataA, dataB, 'diff_key') });
 });
 
 function diffList(aList, bList, key) {
@@ -683,26 +701,45 @@ function diffList(aList, bList, key) {
 
 // --- Fields -------------------------------------------------------------- //
 app.get('/api/versions/:typeId/fields', (req, res) => {
-  const typeId = Number(req.params.typeId);
+  const idParam = Number(req.params.typeId);
+  const version = db.prepare(`SELECT id, app_id FROM config_versions WHERE id = ?`).get(idParam);
+  if (version) {
+    const rows = db.prepare(`
+      SELECT cf.*, t.app_id, t.type_code
+      FROM config_fields cf
+      JOIN config_types t ON cf.type_id = t.id
+      WHERE t.app_id IS ?
+      ORDER BY cf.sort_order, cf.id
+    `).all(version.app_id ?? null);
+    return res.json(rows);
+  }
+
+  const typeId = idParam;
   const rows = db.prepare(`SELECT * FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(typeId);
-  res.json(rows);
+  return res.json(rows);
 });
 
 app.post('/api/versions/:versionId/fields', (req, res) => {
   if (!requireRole(req, res, ['admin', 'appowner'])) return;
   const versionId = Number(req.params.versionId);
   const body = req.body || {};
-  const version = db.prepare(`SELECT status, type_id FROM config_versions WHERE id = ?`).get(versionId);
+  const version = db.prepare(`SELECT id, app_id, status FROM config_versions WHERE id = ?`).get(versionId);
   if (!version) return res.status(404).json({ error: 'version not found' });
   if (version.status !== 'PENDING_RELEASE') return res.status(400).json({ error: 'only pending version editable' });
+
+  const typeId = Number(body.typeId);
+  if (!typeId) return res.status(400).json({ error: 'typeId required' });
+  const typeRow = db.prepare(`SELECT id, app_id FROM config_types WHERE id = ?`).get(typeId);
+  if (!typeRow) return res.status(404).json({ error: 'type not found' });
+  if ((typeRow.app_id ?? null) !== (version.app_id ?? null)) return res.status(400).json({ error: 'type does not belong to version app' });
+
   const stmt = db.prepare(`
-    INSERT INTO config_fields (type_id, version_id, field_code, field_name, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO config_fields (type_id, field_code, field_name, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   try {
     const info = stmt.run(
-      version.type_id,
-      versionId,
+      typeId,
       body.fieldCode,
       body.fieldName,
       body.dataType || 'string',
@@ -733,7 +770,7 @@ app.get('/api/fields', (req, res) => {
   const params = [];
   if (appId) { sql += ` AND t.app_id = ?`; params.push(appId); }
   if (typeId) { sql += ` AND cf.type_id = ?`; params.push(typeId); }
-  if (versionId) { sql += ` AND cf.version_id = ?`; params.push(versionId); }
+  if (versionId) { /* ignored: config_fields is not version-scoped */ }
   sql += ` ORDER BY cf.sort_order, cf.id DESC`;
   res.json(db.prepare(sql).all(params));
 });
@@ -826,6 +863,14 @@ app.get('/api/versions/:versionId/data', (req, res) => {
   if (!typeId) return res.status(400).json({ error: 'typeId required' });
   if (!envId) return res.status(400).json({ error: 'envId required' });
   const rows = db.prepare(`SELECT * FROM config_data WHERE version_id = ? AND type_id = ? AND env_id = ? ORDER BY id DESC`).all(versionId, typeId, envId);
+  res.json(rows);
+});
+
+app.get('/api/versions/:versionId/data/all', (req, res) => {
+  const versionId = Number(req.params.versionId);
+  const rows = db
+    .prepare(`SELECT id, type_id, version_id, env_id, key_value, data_json, status FROM config_data WHERE version_id = ? ORDER BY env_id, key_value`)
+    .all(versionId);
   res.json(rows);
 });
 
@@ -993,11 +1038,33 @@ app.delete('/api/data/:id', (req, res) => {
 app.get('/api/config/:appCode/:typeCode/:key', (req, res) => {
   const { appCode, typeCode, key } = req.params;
   const env = req.query.env || 'prod';
-  const type = db.prepare(`SELECT id FROM config_types WHERE app_code = ? AND type_code = ? AND env = ?`).get(appCode, typeCode, env);
+  const appRow = db.prepare(`SELECT id FROM applications WHERE app_code = ?`).get(appCode);
+  if (!appRow) return res.status(404).json({ error: 'app not found' });
+  const envRow = db.prepare(`SELECT id FROM environments WHERE app_id = ? AND env_code = ?`).get(appRow.id, env);
+  if (!envRow) return res.status(404).json({ error: 'env not found' });
+  const type = db
+    .prepare(
+      `SELECT id, app_id
+       FROM config_types
+       WHERE app_id = ? AND type_code = ? AND (env_id = ? OR env_id IS NULL)
+       ORDER BY env_id IS NULL, id DESC
+       LIMIT 1`
+    )
+    .get(appRow.id, typeCode, envRow.id);
   if (!type) return res.status(404).json({ error: 'type not found' });
-  const released = db.prepare(`SELECT id FROM config_versions WHERE type_id = ? AND status = 'RELEASED' ORDER BY release_time DESC LIMIT 1`).get(type.id);
+  const released = db
+    .prepare(`SELECT id FROM config_versions WHERE app_id IS ? AND status = 'RELEASED' ORDER BY release_time DESC, id DESC LIMIT 1`)
+    .get(type.app_id ?? null);
   if (!released) return res.status(404).json({ error: 'no released version' });
-  const row = db.prepare(`SELECT data_json, status FROM config_data WHERE version_id = ? AND key_value = ?`).get(released.id, key);
+  const row = db
+    .prepare(
+      `SELECT data_json, status
+       FROM config_data
+       WHERE version_id = ? AND type_id = ? AND key_value = ? AND (env_id = ? OR env_id IS NULL)
+       ORDER BY env_id IS NULL, id DESC
+       LIMIT 1`
+    )
+    .get(released.id, type.id, key, envRow.id);
   if (!row) return res.status(404).json({ error: 'not found' });
   res.json({ key, data: JSON.parse(row.data_json), status: row.status });
 });
@@ -1005,11 +1072,32 @@ app.get('/api/config/:appCode/:typeCode/:key', (req, res) => {
 app.get('/api/config/:appCode/:typeCode', (req, res) => {
   const { appCode, typeCode } = req.params;
   const env = req.query.env || 'prod';
-  const type = db.prepare(`SELECT id FROM config_types WHERE app_code = ? AND type_code = ? AND env = ?`).get(appCode, typeCode, env);
+  const appRow = db.prepare(`SELECT id FROM applications WHERE app_code = ?`).get(appCode);
+  if (!appRow) return res.status(404).json({ error: 'app not found' });
+  const envRow = db.prepare(`SELECT id FROM environments WHERE app_id = ? AND env_code = ?`).get(appRow.id, env);
+  if (!envRow) return res.status(404).json({ error: 'env not found' });
+  const type = db
+    .prepare(
+      `SELECT id, app_id
+       FROM config_types
+       WHERE app_id = ? AND type_code = ? AND (env_id = ? OR env_id IS NULL)
+       ORDER BY env_id IS NULL, id DESC
+       LIMIT 1`
+    )
+    .get(appRow.id, typeCode, envRow.id);
   if (!type) return res.status(404).json({ error: 'type not found' });
-  const released = db.prepare(`SELECT id FROM config_versions WHERE type_id = ? AND status = 'RELEASED' ORDER BY release_time DESC LIMIT 1`).get(type.id);
+  const released = db
+    .prepare(`SELECT id FROM config_versions WHERE app_id IS ? AND status = 'RELEASED' ORDER BY release_time DESC, id DESC LIMIT 1`)
+    .get(type.app_id ?? null);
   if (!released) return res.status(404).json({ error: 'no released version' });
-  const rows = db.prepare(`SELECT key_value, data_json, status FROM config_data WHERE version_id = ?`).all(released.id);
+  const rows = db
+    .prepare(
+      `SELECT key_value, data_json, status
+       FROM config_data
+       WHERE version_id = ? AND type_id = ? AND (env_id = ? OR env_id IS NULL)
+       ORDER BY env_id IS NULL, key_value`
+    )
+    .all(released.id, type.id, envRow.id);
   res.json(rows.map((r) => ({ key: r.key_value, data: JSON.parse(r.data_json), status: r.status })));
 });
 

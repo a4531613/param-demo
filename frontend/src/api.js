@@ -47,6 +47,7 @@ export const api = {
   deleteField: (id) => request(`/fields/${id}`, { method: 'DELETE' }),
   // data
   listData: (versionId, typeId, envId) => request(`/versions/${versionId}/data?${new URLSearchParams({ typeId, envId })}`),
+  listVersionDataAll: (versionId) => request(`/versions/${versionId}/data/all`),
   upsertData: (versionId, payload) => request(`/versions/${versionId}/data`, { method: 'POST', body: JSON.stringify(payload) }),
   exportData: async (versionId, typeId, envId) => {
     const res = await fetch(`${apiBase}/versions/${versionId}/data/export?${new URLSearchParams({ typeId, envId })}`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
