@@ -255,7 +255,8 @@ async function loadFieldsForSelection() {
   const params = {};
   if (state.appId) params.appId = state.appId;
   if (state.typeId) params.typeId = state.typeId;
-  fields.value = await api.listFieldsAll(params);
+  const list = await api.listFieldsAll(params);
+  fields.value = [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
 }
 
 function csvToRows(text) {
