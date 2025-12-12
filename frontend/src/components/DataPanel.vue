@@ -107,6 +107,31 @@
           {{ formatValue(preview.row.parsed?.[f.field_code]) }}
         </el-descriptions-item>
       </el-descriptions>
+
+      <div class="compare-title" v-if="preview.compare.envs.length">跨环境对比</div>
+      <el-skeleton v-if="preview.loading" :rows="3" animated />
+      <el-table
+        v-else-if="preview.compare.envs.length"
+        :data="preview.compare.rows"
+        border
+        size="small"
+        class="compare-table"
+      >
+        <el-table-column prop="field_name" label="字段" width="180" fixed />
+        <el-table-column
+          v-for="env in preview.compare.envs"
+          :key="env.envId"
+          :label="env.label"
+          :min-width="140"
+        >
+          <template #default="scope">
+            <span :class="['compare-cell', { diff: isDiff(scope.row, env.envId) }]">
+              {{ formatValue(scope.row.values[env.envId]) || '—' }}
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-else class="compare-empty">暂无其他环境的同名配置</div>
     </div>
     <template #footer>
       <el-button @click="preview.visible=false">关闭</el-button>
@@ -131,7 +156,12 @@ const displayedRows = computed(() =>
   showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value
 );
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '', status: 'ENABLED', data: {} } });
-const preview = reactive({ visible: false, row: null });
+const preview = reactive({
+  visible: false,
+  row: null,
+  loading: false,
+  compare: { envs: [], rows: [] }
+});
 const importInput = ref(null);
 const selected = ref([]);
 
@@ -163,6 +193,7 @@ const formatValue = (v) => {
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 };
+const normalize = (v) => (v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
 
 async function load() {
   if (!state.versionId || !state.typeId) return;
@@ -184,9 +215,53 @@ function onTypeSelect(id) {
   load();
 }
 
-function openPreview(row) {
+async function loadPreviewComparison(keyValue) {
+  preview.loading = true;
+  preview.compare = { envs: [], rows: [] };
+  const targetVersions = props.versions.filter(
+    (v) => v.type_id === state.typeId && ['RELEASED', 'ARCHIVED', 'PENDING_RELEASE'].includes(v.status)
+  );
+  try {
+    const results = await Promise.all(
+      targetVersions.map(async (v) => {
+        const list = await api.listData(v.id, state.typeId);
+        const hit = list.find((item) => item.key_value === keyValue);
+        const env = envs.value.find((e) => e.id === v.env_id);
+        return {
+          envId: v.env_id,
+          envCode: env?.env_code || '',
+          envName: env?.env_name || '未知环境',
+          label: env ? `${env.env_name} (${env.env_code})` : `环境 ${v.env_id}`,
+          parsed: hit ? safeParse(hit.data_json) : null,
+          status: hit?.status || null
+        };
+      })
+    );
+    const envsUsed = results.filter((r) => r.envId != null);
+    const rowsForFields = fields.value.map((f) => {
+      const values = {};
+      envsUsed.forEach((env) => { values[env.envId] = env.parsed ? env.parsed[f.field_code] : null; });
+      return { field_code: f.field_code, field_name: f.field_name, values };
+    });
+    preview.compare = { envs: envsUsed, rows: rowsForFields };
+  } catch (err) {
+    ElMessage.error(err.message || '对比数据加载失败');
+  } finally {
+    preview.loading = false;
+  }
+}
+
+async function openPreview(row) {
   preview.row = row;
   preview.visible = true;
+  await loadPreviewComparison(row.key_value);
+}
+
+function isDiff(row, envId) {
+  const all = preview.compare.envs.map((env) => normalize(row.values[env.envId]));
+  const base = all.find((v) => v !== '');
+  if (base === undefined) return false;
+  return normalize(row.values[envId]) !== base || all.some((v) => v !== base);
 }
 
 function openModal(row) {
@@ -440,4 +515,8 @@ loadRefs();
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }
 .preview-key { font-size:18px; font-weight:600; color:#111827; }
+.compare-title { font-weight:600; color:#374151; margin-top:6px; }
+.compare-table .compare-cell { display:inline-block; padding:2px 4px; }
+.compare-table .compare-cell.diff { background:#fff7ed; color:#c2410c; padding:2px 6px; border-radius:4px; }
+.compare-empty { color:#9ca3af; text-align:center; padding:8px 0; }
 </style>
