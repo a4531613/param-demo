@@ -20,7 +20,12 @@
         <el-button type="primary" @click="openModal()">新增字段</el-button>
       </div>
     </template>
-    <el-table :data="rowsFiltered" border style="width:100%;">
+    <el-table :data="rowsFiltered" border style="width:100%;" :row-key="row => row.id" ref="tableRef">
+      <el-table-column label="排序" width="80">
+        <template #default="scope">
+          <span class="drag-handle">☰</span> {{ scope.row.sort_order ?? '-' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="id" label="字段ID" width="90" />
       <el-table-column prop="field_code" label="字段Key" width="140" />
       <el-table-column prop="field_name" label="字段名称" />
@@ -85,13 +90,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, watch } from 'vue';
+import { computed, onMounted, reactive, watch, nextTick, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
 
 const apps = reactive([]);
 const types = reactive([]);
 const rows = reactive([]);
+const tableRef = ref(null);
 const filters = reactive({ appId: null, typeId: null, keyword: '' });
 const modal = reactive({
   visible: false,
@@ -140,7 +146,8 @@ async function loadFields() {
   if (filters.appId) params.appId = filters.appId;
   if (filters.typeId) params.typeId = filters.typeId;
   const list = await api.listFieldsAll(params);
-  rows.splice(0, rows.length, ...list);
+  rows.splice(0, rows.length, ...list.map((r, idx) => ({ ...r, sort_order: r.sort_order ?? idx })));
+  nextTick(applyRowDrag);
 }
 
 function openModal(row) {
@@ -205,6 +212,7 @@ async function remove(row) {
 onMounted(async () => {
   await loadRefs();
   await loadFields();
+  nextTick(applyRowDrag);
 });
 
 watch(
@@ -212,6 +220,7 @@ watch(
   async () => {
     ensureDefaults();
     await loadFields();
+    nextTick(applyRowDrag);
   }
 );
 
@@ -219,6 +228,7 @@ watch(
   () => filters.typeId,
   async () => {
     await loadFields();
+    nextTick(applyRowDrag);
   }
 );
 
@@ -229,10 +239,66 @@ watch(
   }
 );
 
+watch(
+  () => rowsFiltered.value.length,
+  () => nextTick(applyRowDrag)
+);
+
 function ensureModalDefaults() {
   if (!modal.form.appId && apps.length) modal.form.appId = apps[0].id;
   if (!modalTypeOptions.value.find((t) => t.id === modal.form.typeId)) {
     modal.form.typeId = modalTypeOptions.value[0]?.id || null;
+  }
+}
+
+function applyRowDrag() {
+  const table = tableRef.value?.$el?.querySelector('.el-table__body-wrapper tbody');
+  const data = tableRef.value?.store?.states?.data?.value || tableRef.value?.store?.states?.data || [];
+  if (!table || !data.length) return;
+  const trs = Array.from(table.querySelectorAll('tr'));
+  trs.forEach((tr, idx) => {
+    tr.draggable = true;
+    const row = data[idx];
+    if (!row) return;
+    tr.setAttribute('data-row-key', row.id);
+    tr.ondragstart = (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      dragState.fromId = row.id;
+      dragState.fromIndex = idx;
+    };
+    tr.ondragover = (e) => e.preventDefault();
+    tr.ondrop = (e) => {
+      e.preventDefault();
+      const toIndex = idx;
+      if (dragState.fromIndex === null || dragState.fromIndex === toIndex) return;
+      reorderRows(dragState.fromIndex, toIndex, data);
+      dragState.fromId = null;
+      dragState.fromIndex = null;
+    };
+  });
+}
+
+const dragState = reactive({ fromId: null, fromIndex: null });
+
+function reorderRows(fromIndex, toIndex, currentData) {
+  const current = currentData.slice();
+  const [moved] = current.splice(fromIndex, 1);
+  current.splice(toIndex, 0, moved);
+  const beforeSort = new Map(rows.map((r) => [r.id, r.sort_order ?? 0]));
+  current.forEach((r, idx) => { r.sort_order = idx; });
+  // apply new sort back to master list
+  current.forEach((item) => {
+    const target = rows.find((r) => r.id === item.id);
+    if (target) target.sort_order = item.sort_order;
+  });
+  rows.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  persistSortOrder(current, beforeSort);
+}
+
+async function persistSortOrder(list, beforeSort) {
+  const changed = list.filter((r) => beforeSort.get(r.id) !== r.sort_order);
+  for (const r of changed) {
+    await api.updateField(r.id, { sortOrder: r.sort_order });
   }
 }
 </script>
@@ -241,4 +307,5 @@ function ensureModalDefaults() {
 .toolbar { display:flex; align-items:center; gap:10px; flex-wrap: wrap; }
 .env-tags, .type-tags { display:flex; align-items:center; gap:6px; }
 .tag-label { color:#6b7280; font-size:12px; }
+.drag-handle { cursor:grab; user-select:none; }
 </style>
