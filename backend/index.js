@@ -1016,10 +1016,9 @@ app.get('/api/export/html', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.html"`);
 
   const nowIso = new Date().toISOString();
-  const maxHeaderLen = 18;
-  const maxCellLen = 64;
+  const maxCellLen = 96;
   const maxTipLen = 8000;
-  const maxColsPerTable = 12;
+  const maxFieldLabelLen = 28;
 
   const html = [];
   html.push(`<!doctype html>`);
@@ -1030,63 +1029,37 @@ app.get('/api/export/html', (req, res) => {
   html.push(`<title>${escapeHtml(fileBase)}</title>`);
   html.push(`<style>
     :root {
-      --bg: #f8fafc;
+      --bg: #ffffff;
       --card: #ffffff;
       --text: #111827;
       --muted: #6b7280;
-      --border: #e5e7eb;
-      --head: #f9fafb;
+      --border: #e6e8ec;
+      --head: #f6f7f9;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; background: var(--bg); color: var(--text); }
-    .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; background: #fafafa; color: var(--text); }
+    .wrap { max-width: 980px; margin: 22px auto; padding: 0 16px; }
     .header { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
-    .title { font-size: 18px; font-weight: 650; margin: 0 0 8px 0; }
+    .title { font-size: 18px; font-weight: 650; margin: 0 0 6px 0; letter-spacing: 0.2px; }
     .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; color: var(--muted); font-size: 12px; }
     .meta div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .section { margin-top: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
     .section h2 { margin: 0 0 10px 0; font-size: 14px; font-weight: 650; }
     .hint { color: var(--muted); font-size: 12px; margin: 6px 0 10px 0; }
-    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
-    table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 720px; }
-    thead th { position: sticky; top: 0; z-index: 2; background: var(--head); color: var(--muted); font-weight: 600; font-size: 12px; text-align: left; border-bottom: 1px solid var(--border); }
-    th, td { padding: 10px 10px; border-right: 1px solid var(--border); }
-    th:last-child, td:last-child { border-right: none; }
-    tbody td { border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: top; }
-    tbody tr:last-child td { border-bottom: none; }
-    .cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
-    .tip-target { cursor: help; }
-    .key { position: sticky; left: 0; z-index: 1; background: var(--card); }
-    thead .key { z-index: 3; background: var(--head); }
-    .status { width: 80px; }
+    .cell { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
     .mono { font-family: var(--mono); }
-    .tooltip {
-      position: fixed;
-      inset: 0 auto auto 0;
-      max-width: min(520px, calc(100vw - 28px));
-      max-height: min(420px, calc(100vh - 28px));
-      overflow: auto;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(17, 24, 39, 0.96);
-      color: #f9fafb;
-      border: 1px solid rgba(255, 255, 255, 0.10);
-      box-shadow: 0 18px 50px rgba(0,0,0,0.30);
-      font-size: 12px;
-      line-height: 1.45;
-      white-space: pre-wrap;
-      word-break: break-word;
-      z-index: 9999;
-      opacity: 0;
-      transform: translateY(4px);
-      transition: opacity 120ms ease, transform 120ms ease;
-      pointer-events: none;
-    }
-    .tooltip.show { opacity: 1; transform: translateY(0); }
-    .tooltip .k { display:block; color: rgba(229, 231, 235, 0.85); font-size: 11px; margin-bottom: 6px; }
-    .tooltip .v { font-family: var(--mono); }
-    @media (max-width: 720px) { .meta { grid-template-columns: 1fr; } table { min-width: 900px; } }
+    .record { border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-top: 10px; background: #fff; }
+    .record__head { display:flex; align-items:center; justify-content:space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+    .record__key { font-weight: 650; font-size: 13px; min-width: 0; }
+    .pill { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); flex: 0 0 auto; }
+    .form-grid { display:grid; grid-template-columns: 1fr; gap: 10px; padding-top: 10px; }
+    .form-item { display:flex; flex-direction: column; gap: 4px; }
+    .form-label { color: var(--muted); font-size: 11px; letter-spacing: 0.2px; }
+    .form-value { font-size: 12px; min-width: 0; }
+    .value-box { padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--head); }
+    .empty { color: var(--muted); font-size: 12px; padding: 10px 0 2px 0; }
+    @media (max-width: 720px) { .meta { grid-template-columns: 1fr; } }
   </style>`);
   html.push(`</head>`);
   html.push(`<body>`);
@@ -1094,10 +1067,10 @@ app.get('/api/export/html', (req, res) => {
   html.push(`<div class="header">`);
   html.push(`<div class="title">配置导出（HTML）</div>`);
   html.push(`<div class="meta">`);
-  html.push(`<div class="tip-target" data-tip="${escapeHtmlAttr(`${appRow.app_name || ''} (${appRow.app_code || appRow.id})`)}">应用：${escapeHtml(appRow.app_name || '')} (${escapeHtml(appRow.app_code || appRow.id)})</div>`);
-  html.push(`<div class="tip-target" data-tip="${escapeHtmlAttr(`${versionRow.version_no || versionRow.id}`)}">版本：${escapeHtml(versionRow.version_no || versionRow.id)}（${escapeHtml(versionRow.status || '-') }）</div>`);
-  html.push(`<div class="tip-target" data-tip="${escapeHtmlAttr(`${envRow.env_name || ''} (${envRow.env_code || envRow.id})`)}">环境：${escapeHtml(envRow.env_name || '')} (${escapeHtml(envRow.env_code || envRow.id)})</div>`);
-  html.push(`<div class="tip-target" data-tip="${escapeHtmlAttr(nowIso)}">导出时间：${escapeHtml(nowIso)}</div>`);
+  html.push(`<div title="${escapeHtmlAttr(`${appRow.app_name || ''} (${appRow.app_code || appRow.id})`)}">应用：${escapeHtml(appRow.app_name || '')} (${escapeHtml(appRow.app_code || appRow.id)})</div>`);
+  html.push(`<div title="${escapeHtmlAttr(`${versionRow.version_no || versionRow.id}`)}">版本：${escapeHtml(versionRow.version_no || versionRow.id)}（${escapeHtml(versionRow.status || '-') }）</div>`);
+  html.push(`<div title="${escapeHtmlAttr(`${envRow.env_name || ''} (${envRow.env_code || envRow.id})`)}">环境：${escapeHtml(envRow.env_name || '')} (${escapeHtml(envRow.env_code || envRow.id)})</div>`);
+  html.push(`<div title="${escapeHtmlAttr(nowIso)}">导出时间：${escapeHtml(nowIso)}</div>`);
   html.push(`</div>`);
   html.push(`</div>`);
 
@@ -1119,40 +1092,38 @@ app.get('/api/export/html', (req, res) => {
       return { key_value: r.key_value, status: r.status, obj: typeof obj === 'object' && obj ? obj : {} };
     });
 
-    const chunks = [];
-    if (!fields.length) chunks.push([]);
-    else for (let i = 0; i < fields.length; i += maxColsPerTable) chunks.push(fields.slice(i, i + maxColsPerTable));
+    parsed.forEach((r) => {
+      const keyShort = shortenText(r.key_value, maxCellLen);
+      const keyTip = shortenText(r.key_value, maxTipLen) + (String(r.key_value || '').length > maxTipLen ? '（已截断）' : '');
+      html.push(`<div class="record">`);
+      html.push(`<div class="record__head">`);
+      html.push(`<div class="record__key mono"><span class="cell" title="${escapeHtmlAttr(keyTip)}">${escapeHtml(keyShort)}</span></div>`);
+      html.push(`<div class="pill" title="${escapeHtmlAttr(r.status || '')}">${escapeHtml(r.status || '')}</div>`);
+      html.push(`</div>`);
 
-    chunks.forEach((chunk, idx) => {
-      if (chunks.length > 1) html.push(`<div class="hint">字段分组：${idx + 1}/${chunks.length}（字段过多时自动拆分）</div>`);
-      html.push(`<div class="table-wrap">`);
-      html.push(`<table>`);
-      html.push(`<thead><tr>`);
-      html.push(`<th class="key">Key</th>`);
-      html.push(`<th class="status">状态</th>`);
-      chunk.forEach((f) => {
-        const fullHeader = `${f.field_name || f.field_code} (${f.field_code})`;
-        const shortHeader = shortenText(f.field_name || f.field_code, maxHeaderLen);
-        html.push(`<th><span class="cell tip-target" data-tip="${escapeHtmlAttr(fullHeader)}">${escapeHtml(shortHeader)}</span></th>`);
+      const renderFields = fields.length
+        ? fields
+        : Object.keys(r.obj || {}).sort().map((k) => ({ field_code: k, field_name: k }));
+
+      if (!renderFields.length) {
+        html.push(`<div class="empty">无字段定义</div>`);
+        html.push(`</div>`);
+        return;
+      }
+
+      html.push(`<div class="form-grid">`);
+      renderFields.forEach((f) => {
+        const labelFull = `${f.field_name || f.field_code} (${f.field_code})`;
+        const labelShort = shortenText(f.field_name || f.field_code, maxFieldLabelLen);
+        const raw = toCellText(r.obj?.[f.field_code]);
+        const short = shortenText(raw, maxCellLen);
+        const tipText = shortenText(raw, maxTipLen) + (raw.length > maxTipLen ? '（已截断）' : '');
+        html.push(`<div class="form-item">`);
+        html.push(`<div class="form-label"><span class="cell" title="${escapeHtmlAttr(labelFull)}">${escapeHtml(labelShort)}</span></div>`);
+        html.push(`<div class="form-value mono"><div class="value-box" title="${escapeHtmlAttr(tipText)}">${escapeHtml(short)}</div></div>`);
+        html.push(`</div>`);
       });
-      html.push(`</tr></thead>`);
-      html.push(`<tbody>`);
-      parsed.forEach((r) => {
-        html.push(`<tr>`);
-        const keyShort = shortenText(r.key_value, maxCellLen);
-        const keyTip = shortenText(r.key_value, maxTipLen) + (String(r.key_value || '').length > maxTipLen ? '（已截断）' : '');
-        html.push(`<td class="key mono"><span class="cell tip-target" data-tip="${escapeHtmlAttr(keyTip)}">${escapeHtml(keyShort)}</span></td>`);
-        html.push(`<td class="status"><span class="cell tip-target" data-tip="${escapeHtmlAttr(r.status || '')}">${escapeHtml(r.status || '')}</span></td>`);
-        chunk.forEach((f) => {
-          const raw = toCellText(r.obj?.[f.field_code]);
-          const short = shortenText(raw, maxCellLen);
-          const tipText = shortenText(raw, maxTipLen) + (raw.length > maxTipLen ? '（已截断）' : '');
-          html.push(`<td><span class="cell tip-target" data-tip="${escapeHtmlAttr(tipText)}">${escapeHtml(short)}</span></td>`);
-        });
-        html.push(`</tr>`);
-      });
-      html.push(`</tbody>`);
-      html.push(`</table>`);
+      html.push(`</div>`);
       html.push(`</div>`);
     });
 
@@ -1160,63 +1131,6 @@ app.get('/api/export/html', (req, res) => {
   });
 
   html.push(`</div>`);
-  html.push(`<div id="__tooltip" class="tooltip" role="tooltip" aria-hidden="true"><span class="k"></span><span class="v"></span></div>`);
-  html.push(`<script>
-    (function () {
-      const tip = document.getElementById('__tooltip');
-      if (!tip) return;
-      const tipK = tip.querySelector('.k');
-      const tipV = tip.querySelector('.v');
-      let active = null;
-      let raf = 0;
-      const offset = 14;
-      function setPos(x, y) {
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const rect = tip.getBoundingClientRect();
-        let left = x + offset;
-        let top = y + offset;
-        if (left + rect.width > vw - 10) left = Math.max(10, x - rect.width - offset);
-        if (top + rect.height > vh - 10) top = Math.max(10, y - rect.height - offset);
-        tip.style.left = left + 'px';
-        tip.style.top = top + 'px';
-      }
-      function show(el, x, y) {
-        const text = el.getAttribute('data-tip') || '';
-        if (!text) return;
-        active = el;
-        tipK.textContent = '';
-        tipV.textContent = text;
-        tip.classList.add('show');
-        tip.setAttribute('aria-hidden', 'false');
-        setPos(x, y);
-      }
-      function hide() {
-        active = null;
-        tip.classList.remove('show');
-        tip.setAttribute('aria-hidden', 'true');
-      }
-      function onMove(e) {
-        if (!active) return;
-        if (raf) cancelAnimationFrame(raf);
-        raf = requestAnimationFrame(() => setPos(e.clientX, e.clientY));
-      }
-      document.addEventListener('mouseover', (e) => {
-        const el = e.target && e.target.closest && e.target.closest('[data-tip]');
-        if (!el) return;
-        show(el, e.clientX, e.clientY);
-      });
-      document.addEventListener('mouseout', (e) => {
-        if (!active) return;
-        const toEl = e.relatedTarget;
-        if (toEl && active.contains(toEl)) return;
-        hide();
-      });
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('scroll', () => { if (active) hide(); }, true);
-      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(); });
-    })();
-  </script>`);
   html.push(`</body>`);
   html.push(`</html>`);
   res.send(html.join('\n'));
