@@ -36,7 +36,7 @@
               <el-dropdown-menu>
                 <el-dropdown-item :disabled="!state.versionId" @click="downloadTemplate">下载模板</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.versionId" @click="downloadData">导出</el-dropdown-item>
-                <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="downloadAllPdf">导出PDF</el-dropdown-item>
+                <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="downloadAllHtml">导出HTML</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.versionId" @click="openVersionPreview">一键预览</el-dropdown-item>
                 <el-dropdown-item divided :disabled="isArchivedVersion || !state.versionId" @click="triggerImport">导入</el-dropdown-item>
               </el-dropdown-menu>
@@ -1015,9 +1015,9 @@ async function downloadData() {
   await downloadText(`version_${state.versionId}_data.csv`, text);
 }
 
-async function downloadAllPdf() {
+async function downloadAllHtml() {
   if (!state.appId || !state.versionId || !state.envId) return;
-  const { blob, filename } = await api.exportAllPdf(state.appId, state.versionId, state.envId);
+  const { blob, filename } = await api.exportAllHtml(state.appId, state.versionId, state.envId);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

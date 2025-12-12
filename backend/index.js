@@ -6,11 +6,9 @@
  */
 
 const path = require('path');
-const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const Database = require('better-sqlite3');
-const PDFDocument = require('pdfkit');
 
 const DB_PATH = path.join(__dirname, 'config-center.db');
 const db = new Database(DB_PATH);
@@ -963,7 +961,11 @@ app.get('/api/versions/:versionId/data/export', (req, res) => {
   res.send(csv);
 });
 
-app.get('/api/export/pdf', (req, res) => {
+app.get('/api/export/pdf', (_req, res) => {
+  res.status(410).json({ error: 'PDF export deprecated; use /api/export/html' });
+});
+
+app.get('/api/export/html', (req, res) => {
   const appId = Number(req.query.appId);
   const versionId = Number(req.query.versionId);
   const envId = Number(req.query.envId);
@@ -1009,116 +1011,133 @@ app.get('/api/export/pdf', (req, res) => {
     dataByTypeId.get(r.type_id).push(r);
   });
 
-  const title = '配置导出';
   const fileBase = safeFilename(`config_${appRow.app_code || appRow.id}_v${versionRow.version_no || versionRow.id}_env${envRow.env_code || envRow.id}`);
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.pdf"`);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.html"`);
 
-  const doc = new PDFDocument({ size: 'A4', margin: 50 });
-  doc.on('error', () => { try { res.end(); } catch { /* ignore */ } });
-  doc.pipe(res);
+  const nowIso = new Date().toISOString();
+  const maxHeaderLen = 18;
+  const maxCellLen = 64;
+  const maxTitleLen = 2000;
+  const maxColsPerTable = 12;
 
-  let fontLoaded = false;
-  for (const fontPath of resolvePdfFontPaths()) {
-    try {
-      doc.font(fontPath);
-      fontLoaded = true;
-      break;
-    } catch {
-      // try next
+  const html = [];
+  html.push(`<!doctype html>`);
+  html.push(`<html lang="zh-CN">`);
+  html.push(`<head>`);
+  html.push(`<meta charset="utf-8" />`);
+  html.push(`<meta name="viewport" content="width=device-width, initial-scale=1" />`);
+  html.push(`<title>${escapeHtml(fileBase)}</title>`);
+  html.push(`<style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --head: #f9fafb;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
-  }
-  if (!fontLoaded) doc.font('Helvetica');
-
-  const primary = '#111827';
-  const muted = '#6b7280';
-  const border = '#e5e7eb';
-  const pageBottom = () => doc.page.height - doc.page.margins.bottom;
-  const ensureSpace = (minSpace = 40) => {
-    if (doc.y + minSpace > pageBottom()) doc.addPage();
-  };
-
-  doc.fillColor(primary).fontSize(18).text(title);
-  doc.moveDown(0.25);
-  doc.fillColor(muted).fontSize(10).text(`应用：${appRow.app_name || ''} (${appRow.app_code || appRow.id})`);
-  doc.fillColor(muted).fontSize(10).text(`版本：${versionRow.version_no || versionRow.id}  状态：${versionRow.status || '-'}`);
-  doc.fillColor(muted).fontSize(10).text(`环境：${envRow.env_name || ''} (${envRow.env_code || envRow.id})`);
-  doc.fillColor(muted).fontSize(10).text(`导出时间：${new Date().toISOString()}`);
-  doc.moveDown(0.6);
-  doc.strokeColor(border).lineWidth(1).moveTo(doc.page.margins.left, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).stroke();
-  doc.moveDown(0.8);
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; background: var(--bg); color: var(--text); }
+    .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    .header { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .title { font-size: 18px; font-weight: 650; margin: 0 0 8px 0; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; color: var(--muted); font-size: 12px; }
+    .meta div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .section { margin-top: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+    .section h2 { margin: 0 0 10px 0; font-size: 14px; font-weight: 650; }
+    .hint { color: var(--muted); font-size: 12px; margin: 6px 0 10px 0; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 720px; }
+    thead th { position: sticky; top: 0; z-index: 2; background: var(--head); color: var(--muted); font-weight: 600; font-size: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th, td { padding: 10px 10px; border-right: 1px solid var(--border); }
+    th:last-child, td:last-child { border-right: none; }
+    tbody td { border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: top; }
+    tbody tr:last-child td { border-bottom: none; }
+    .cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+    .key { position: sticky; left: 0; z-index: 1; background: var(--card); }
+    thead .key { z-index: 3; background: var(--head); }
+    .status { width: 80px; }
+    .mono { font-family: var(--mono); }
+    @media (max-width: 720px) { .meta { grid-template-columns: 1fr; } table { min-width: 900px; } }
+  </style>`);
+  html.push(`</head>`);
+  html.push(`<body>`);
+  html.push(`<div class="wrap">`);
+  html.push(`<div class="header">`);
+  html.push(`<div class="title">配置导出（HTML）</div>`);
+  html.push(`<div class="meta">`);
+  html.push(`<div title="${escapeHtml(`${appRow.app_name || ''} (${appRow.app_code || appRow.id})`)}">应用：${escapeHtml(appRow.app_name || '')} (${escapeHtml(appRow.app_code || appRow.id)})</div>`);
+  html.push(`<div title="${escapeHtml(`${versionRow.version_no || versionRow.id}`)}">版本：${escapeHtml(versionRow.version_no || versionRow.id)}（${escapeHtml(versionRow.status || '-') }）</div>`);
+  html.push(`<div title="${escapeHtml(`${envRow.env_name || ''} (${envRow.env_code || envRow.id})`)}">环境：${escapeHtml(envRow.env_name || '')} (${escapeHtml(envRow.env_code || envRow.id)})</div>`);
+  html.push(`<div title="${escapeHtml(nowIso)}">导出时间：${escapeHtml(nowIso)}</div>`);
+  html.push(`</div>`);
+  html.push(`</div>`);
 
   types.forEach((t) => {
-    ensureSpace(80);
-    doc.fillColor(primary).fontSize(13).text(`${t.type_name || ''} (${t.type_code || t.id})`);
-    doc.moveDown(0.3);
+    const typeTitle = `${t.type_name || ''} (${t.type_code || t.id})`;
+    html.push(`<div class="section">`);
+    html.push(`<h2 title="${escapeHtml(typeTitle)}">${escapeHtml(typeTitle)}</h2>`);
 
     const list = dataByTypeId.get(t.id) || [];
     if (!list.length) {
-      doc.fillColor(muted).fontSize(10).text('暂无配置');
-      doc.moveDown(0.8);
+      html.push(`<div class="hint">暂无配置</div>`);
+      html.push(`</div>`);
       return;
     }
+
     const fields = fieldsByTypeId.get(t.id) || [];
-    const parsedRows = list.map((r) => {
+    const parsed = list.map((r) => {
       const obj = safeParse(r.data_json);
-      return {
-        key_value: r.key_value,
-        status: r.status,
-        _obj: typeof obj === 'object' && obj ? obj : {}
-      };
+      return { key_value: r.key_value, status: r.status, obj: typeof obj === 'object' && obj ? obj : {} };
     });
 
-    const fixedColumns = [
-      { key: 'key_value', title: 'Key', width: 140 },
-      { key: 'status', title: '状态', width: 60 }
-    ];
-
-    const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-    const fixedWidth = fixedColumns.reduce((sum, c) => sum + c.width, 0);
-    const minDynamicWidth = 90;
-    const maxDynamicCols = Math.max(1, Math.floor((availableWidth - fixedWidth) / minDynamicWidth));
     const chunks = [];
-    if (!fields.length) {
-      chunks.push([]);
-    } else {
-      for (let i = 0; i < fields.length; i += maxDynamicCols) chunks.push(fields.slice(i, i + maxDynamicCols));
-    }
+    if (!fields.length) chunks.push([]);
+    else for (let i = 0; i < fields.length; i += maxColsPerTable) chunks.push(fields.slice(i, i + maxColsPerTable));
 
     chunks.forEach((chunk, idx) => {
-      ensureSpace(40);
-      if (chunks.length > 1) {
-        doc.fillColor(muted).fontSize(9).text(`字段分组：${idx + 1}/${chunks.length}`);
-        doc.moveDown(0.2);
-      }
-
-      const dynamicCols = chunk.map((f) => ({
-        key: `f_${f.field_code}`,
-        title: f.field_name || f.field_code,
-        width: Math.max(minDynamicWidth, Math.floor((availableWidth - fixedWidth) / Math.max(1, chunk.length)))
-      }));
-      const tableRows = parsedRows.map((r) => {
-        const out = { key_value: r.key_value, status: r.status };
+      if (chunks.length > 1) html.push(`<div class="hint">字段分组：${idx + 1}/${chunks.length}（字段过多时自动拆分）</div>`);
+      html.push(`<div class="table-wrap">`);
+      html.push(`<table>`);
+      html.push(`<thead><tr>`);
+      html.push(`<th class="key">Key</th>`);
+      html.push(`<th class="status">状态</th>`);
+      chunk.forEach((f) => {
+        const fullHeader = `${f.field_name || f.field_code} (${f.field_code})`;
+        const shortHeader = shortenText(f.field_name || f.field_code, maxHeaderLen);
+        html.push(`<th title="${escapeHtml(fullHeader)}"><span class="cell">${escapeHtml(shortHeader)}</span></th>`);
+      });
+      html.push(`</tr></thead>`);
+      html.push(`<tbody>`);
+      parsed.forEach((r) => {
+        html.push(`<tr>`);
+        const keyShort = shortenText(r.key_value, maxCellLen);
+        const keyTitle = shortenText(r.key_value, maxTitleLen);
+        html.push(`<td class="key mono"><span class="cell" title="${escapeHtml(keyTitle)}">${escapeHtml(keyShort)}</span></td>`);
+        html.push(`<td class="status"><span class="cell" title="${escapeHtml(r.status || '')}">${escapeHtml(r.status || '')}</span></td>`);
         chunk.forEach((f) => {
-          out[`f_${f.field_code}`] = toCellText(r._obj[f.field_code]);
+          const raw = toCellText(r.obj?.[f.field_code]);
+          const short = shortenText(raw, maxCellLen);
+          let titleText = shortenText(raw, maxTitleLen);
+          if (raw.length > maxTitleLen) titleText += '（已截断）';
+          html.push(`<td><span class="cell" title="${escapeHtml(titleText)}">${escapeHtml(short)}</span></td>`);
         });
-        return out;
+        html.push(`</tr>`);
       });
-
-      drawTable(doc, {
-        columns: [...fixedColumns, ...dynamicCols],
-        rows: tableRows,
-        fontSize: 8.5,
-        headerFontSize: 8.5,
-        minRowHeight: 18
-      });
-      doc.moveDown(0.8);
+      html.push(`</tbody>`);
+      html.push(`</table>`);
+      html.push(`</div>`);
     });
 
-    doc.moveDown(0.8);
+    html.push(`</div>`);
   });
 
-  doc.end();
+  html.push(`</div>`);
+  html.push(`</body>`);
+  html.push(`</html>`);
+  res.send(html.join('\n'));
 });
 
 app.post('/api/versions/:versionId/data/import', (req, res) => {
@@ -1271,6 +1290,22 @@ function safeParse(text) {
   try { return JSON.parse(text); } catch (e) { return text; }
 }
 
+function escapeHtml(input) {
+  const s = String(input ?? '');
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function shortenText(s, maxLen) {
+  const text = String(s ?? '');
+  if (text.length <= maxLen) return text;
+  return text.slice(0, Math.max(0, maxLen - 1)) + '…';
+}
+
 function toCellText(v) {
   if (v === undefined || v === null) return '';
   if (typeof v === 'string') return v;
@@ -1278,142 +1313,12 @@ function toCellText(v) {
   try { return JSON.stringify(v); } catch { return String(v); }
 }
 
-function truncateToWidth(doc, text, width) {
-  const s = String(text ?? '');
-  if (!s) return '';
-  if (doc.widthOfString(s) <= width) return s;
-  const ell = '…';
-  if (doc.widthOfString(ell) > width) return '';
-  let lo = 0;
-  let hi = s.length;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    const sub = s.slice(0, mid) + ell;
-    if (doc.widthOfString(sub) <= width) lo = mid;
-    else hi = mid - 1;
-  }
-  return s.slice(0, lo) + ell;
-}
-
-function drawTable(doc, opts) {
-  const {
-    columns,
-    rows,
-    fontSize = 9,
-    headerFontSize = 9,
-    minRowHeight = 18,
-    paddingX = 4,
-    paddingY = 4,
-    borderColor = '#e5e7eb',
-    headerFill = '#f9fafb',
-    zebraFill = '#fcfcfd',
-    textColor = '#111827',
-    mutedColor = '#6b7280'
-  } = opts;
-
-  const pageBottom = () => doc.page.height - doc.page.margins.bottom;
-  const ensureSpace = (minSpace) => {
-    if (doc.y + minSpace > pageBottom()) doc.addPage();
-  };
-
-  const startX = doc.page.margins.left;
-  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const totalWidth = columns.reduce((sum, c) => sum + c.width, 0);
-  const scale = totalWidth > 0 ? Math.min(1, availableWidth / totalWidth) : 1;
-  const cols = columns.map((c) => ({ ...c, width: Math.max(30, Math.floor(c.width * scale)) }));
-
-  const drawHeader = () => {
-    ensureSpace(minRowHeight + 4);
-    const y = doc.y;
-    doc.save();
-    doc.fillColor(headerFill).rect(startX, y, availableWidth, minRowHeight).fill();
-    doc.restore();
-    doc.strokeColor(borderColor).lineWidth(1).rect(startX, y, availableWidth, minRowHeight).stroke();
-
-    let x = startX;
-    cols.forEach((c) => {
-      doc.strokeColor(borderColor).lineWidth(1).moveTo(x, y).lineTo(x, y + minRowHeight).stroke();
-      doc.fillColor(mutedColor).fontSize(headerFontSize).text(truncateToWidth(doc, c.title, c.width - paddingX * 2), x + paddingX, y + paddingY, {
-        width: c.width - paddingX * 2,
-        height: minRowHeight - paddingY * 2
-      });
-      x += c.width;
-    });
-    doc.strokeColor(borderColor).lineWidth(1).moveTo(startX + availableWidth, y).lineTo(startX + availableWidth, y + minRowHeight).stroke();
-    doc.y = y + minRowHeight;
-  };
-
-  const drawRow = (row, index) => {
-    const y = doc.y;
-    const rowHeight = minRowHeight;
-    ensureSpace(rowHeight + 4);
-
-    if (index % 2 === 1) {
-      doc.save();
-      doc.fillColor(zebraFill).rect(startX, y, availableWidth, rowHeight).fill();
-      doc.restore();
-    }
-    doc.strokeColor(borderColor).lineWidth(1).rect(startX, y, availableWidth, rowHeight).stroke();
-
-    let x = startX;
-    cols.forEach((c) => {
-      const val = row[c.key];
-      const txt = truncateToWidth(doc, toCellText(val), c.width - paddingX * 2);
-      doc.strokeColor(borderColor).lineWidth(1).moveTo(x, y).lineTo(x, y + rowHeight).stroke();
-      doc.fillColor(textColor).fontSize(fontSize).text(txt, x + paddingX, y + paddingY, {
-        width: c.width - paddingX * 2,
-        height: rowHeight - paddingY * 2
-      });
-      x += c.width;
-    });
-    doc.strokeColor(borderColor).lineWidth(1).moveTo(startX + availableWidth, y).lineTo(startX + availableWidth, y + rowHeight).stroke();
-    doc.y = y + rowHeight;
-  };
-
-  drawHeader();
-  rows.forEach((r, idx) => {
-    if (doc.y + minRowHeight * 1.2 > pageBottom()) {
-      doc.addPage();
-      drawHeader();
-    }
-    drawRow(r, idx);
-  });
-};
-
 function safeFilename(name) {
   const base = String(name || 'file')
     .replace(/[^\w.\-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '');
   return base || 'file';
-}
-
-function resolvePdfFontPaths() {
-  const envPath = process.env.PDF_FONT_PATH;
-  if (envPath) {
-    try {
-      if (fs.existsSync(envPath)) return [envPath];
-    } catch {
-      // ignore
-    }
-  }
-
-  const winDir = process.env.WINDIR || 'C:\\Windows';
-  const candidates = [
-    // Prefer standalone TTF first (PDFKit is more reliable than TTC on some setups).
-    path.join(winDir, 'Fonts', 'simhei.ttf'), // 黑体
-    path.join(winDir, 'Fonts', 'msyh.ttf'), // 微软雅黑 (rarely present)
-    path.join(winDir, 'Fonts', 'arialuni.ttf'), // Arial Unicode (if present)
-    // TTC fallbacks
-    path.join(winDir, 'Fonts', 'msyh.ttc'), // 微软雅黑 TTC
-    path.join(winDir, 'Fonts', 'simsun.ttc'), // 宋体 TTC
-    // Last resort (no CJK)
-    path.join(winDir, 'Fonts', 'arial.ttf')
-  ];
-
-  return candidates.filter((p) => {
-    try { return fs.existsSync(p); } catch { return false; }
-  });
 }
 
 // --- Static (serve frontend build if exists) ----------------------------- //

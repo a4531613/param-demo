@@ -59,13 +59,13 @@ export const api = {
     if (!res.ok) throw new Error(await res.text());
     return res.text();
   },
-  exportAllPdf: async (appId, versionId, envId) => {
-    const res = await fetch(`${apiBase}/export/pdf?${new URLSearchParams({ appId, versionId, envId })}`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
+  exportAllHtml: async (appId, versionId, envId) => {
+    const res = await fetch(`${apiBase}/export/html?${new URLSearchParams({ appId, versionId, envId })}`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
     if (!res.ok) throw new Error(await res.text());
     const blob = await res.blob();
     const cd = res.headers.get('content-disposition') || '';
     const m = /filename=\"?([^\";]+)\"?/i.exec(cd);
-    const filename = m?.[1] || `config_${appId}_${versionId}_${envId}.pdf`;
+    const filename = m?.[1] || `config_${appId}_${versionId}_${envId}.html`;
     return { blob, filename };
   },
   importData: (versionId, rows, typeId, envId) => request(`/versions/${versionId}/data/import`, { method: 'POST', body: JSON.stringify({ rows, typeId, envId }) }),
