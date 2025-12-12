@@ -8,13 +8,19 @@
         <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
           <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
         </el-select>
+        <div class="tag-group" v-if="envOptions.length">
+          <span class="tag-label">环境</span>
+          <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
+            {{ `${e.env_name} (${e.env_code})` }}
+          </el-check-tag>
+        </div>
         <div class="tag-group" v-if="typeOptions.length">
           <span class="tag-label">配置类型</span>
           <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
             {{ `${t.type_name} (${t.type_code})` }}
           </el-check-tag>
         </div>
-        <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.typeId">新增配置</el-button>
+        <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
         <el-button type="danger" @click="batchRemove" :disabled="!selected.length || isArchivedVersion">批量删除</el-button>
         <el-button @click="downloadTemplate" :disabled="!state.versionId">下载模板</el-button>
         <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
@@ -64,22 +70,41 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="modal.visible" title="配置项" width="580px">
-    <el-form :model="modal.form" label-width="130px">
+  <el-dialog v-model="modal.visible" title="配置项" width="820px">
+    <el-form :model="modal.form" label-width="120px">
       <el-form-item label="Key"><el-input v-model="modal.form.keyValue" :disabled="!!modal.editId" /></el-form-item>
-      <el-form-item label="启用">
-        <el-switch v-model="modal.form.status" active-value="ENABLED" inactive-value="DISABLED" />
-      </el-form-item>
-      <template v-for="f in fields" :key="f.field_code">
-        <el-form-item :label="f.field_name">
-          <component :is="componentOf(f)"
-                     v-model="modal.form.data[f.field_code]"
-                     v-bind="componentProps(f)">
-            <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
-          </component>
-        </el-form-item>
-      </template>
     </el-form>
+    <div class="env-form-grid">
+      <el-card v-for="ef in modal.envForms" :key="ef.envId" shadow="hover" class="env-card">
+        <div class="env-card__header">
+          <div class="env-card__title">{{ ef.envName }} ({{ ef.envCode }})</div>
+          <div class="env-card__meta">
+            <el-tag size="small" type="info">版本ID: {{ ef.versionId || '—' }}</el-tag>
+            <el-tag size="small" :type="ef.versionStatus === 'ARCHIVED' ? 'info' : 'success'">
+              {{ statusLabel(ef.versionStatus) || '未发布' }}
+            </el-tag>
+          </div>
+        </div>
+        <el-form label-width="110px" class="env-card__form">
+          <el-form-item label="启用">
+            <el-switch v-model="ef.status" active-value="ENABLED" inactive-value="DISABLED" :disabled="ef.disabled" />
+          </el-form-item>
+          <template v-for="f in fields" :key="f.field_code">
+            <el-form-item :label="f.field_name">
+              <component
+                :is="componentOf(f)"
+                v-model="ef.data[f.field_code]"
+                v-bind="componentProps(f)"
+                :disabled="ef.disabled"
+              >
+                <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
+              </component>
+            </el-form-item>
+          </template>
+          <div v-if="ef.disabled" class="env-card__disabled">该环境无可编辑版本或已归档</div>
+        </el-form>
+      </el-card>
+    </div>
     <template #footer>
       <el-button @click="modal.visible=false">取消</el-button>
       <el-button type="primary" @click="save">保存</el-button>
@@ -117,12 +142,13 @@ const rows = ref([]);
 const fields = ref([]);
 const meta = ref(null);
 const apps = ref([]);
-const state = reactive({ appId: null, typeId: null, versionId: null });
+const envs = ref([]);
+const state = reactive({ appId: null, envId: null, typeId: null, versionId: null });
 const showEnabledOnly = ref(true);
 const displayedRows = computed(() =>
   showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value
 );
-const modal = reactive({ visible: false, editId: null, form: { keyValue: '', status: 'ENABLED', data: {} } });
+const modal = reactive({ visible: false, editId: null, form: { keyValue: '' }, envForms: [] });
 const preview = reactive({
   visible: false,
   row: null
@@ -130,11 +156,13 @@ const preview = reactive({
 const importInput = ref(null);
 const selected = ref([]);
 
+const envOptions = computed(() => envs.value.filter((e) => !state.appId || e.app_id === state.appId));
 const typeOptions = computed(() => props.types.filter((t) => !state.appId || t.app_id === state.appId));
 const versionOptions = computed(() =>
   props.versions.filter(
     (v) =>
       (!state.appId || v.app_id === state.appId) &&
+      (!state.envId || v.env_id === state.envId || v.env_id == null) &&
       ['RELEASED', 'ARCHIVED'].includes(v.status)
   )
 );
@@ -142,6 +170,7 @@ const selectedVersion = computed(() => versionOptions.value.find((v) => v.id ===
 const isArchivedVersion = computed(() => selectedVersion.value?.status === 'ARCHIVED');
 const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
 const statusLabel = (s) => statusLabelMap[s] || s;
+const versionLabel = (v) => statusLabelMap[v?.status] || v?.status || '—';
 const safeParse = (text) => {
   try { return JSON.parse(text); } catch (e) { return {}; }
 };
@@ -162,6 +191,10 @@ async function load() {
   }));
 }
 
+function onEnvSelect(id) {
+  state.envId = id;
+  load();
+}
 function onTypeSelect(id) {
   state.typeId = id;
   load();
@@ -172,22 +205,14 @@ async function openPreview(row) {
   preview.visible = true;
 }
 
-function openModal(row) {
+async function openModal(row) {
   if (!state.versionId) return ElMessage.warning('请选择版本');
-  if (!state.typeId) return ElMessage.warning('请选择配置类型');
+  if (!state.envId || !state.typeId) return ElMessage.warning('请选择环境和配置类型');
   // 归档版本禁止新增，但允许读取已存在记录
   if (!row && isArchivedVersion.value) return ElMessage.warning('归档版本不可新增配置');
-  if (row) {
-    modal.editId = row.id;
-    modal.form = {
-      keyValue: row.key_value,
-      status: row.status,
-      data: { ...defaultData(), ...(row.parsed || {}) }
-    };
-  } else {
-    modal.editId = null;
-    modal.form = { keyValue: '', status: 'ENABLED', data: defaultData() };
-  }
+  modal.editId = row?.id || null;
+  modal.form = { keyValue: row?.key_value || '' };
+  await buildEnvForms(row);
   modal.visible = true;
 }
 
@@ -224,9 +249,14 @@ async function save() {
   const keyValue = (modal.form.keyValue || '').trim();
   if (!keyValue) return ElMessage.error('Key不能为空');
   const duplicate = rows.value.some((r) => r.key_value === keyValue && r.id !== modal.editId);
-  if (duplicate) return ElMessage.error('当前版本已存在相同Key');
+  if (duplicate) return ElMessage.error('当前环境下已存在相同Key');
   modal.form.keyValue = keyValue;
-  await api.upsertData(state.versionId, { typeId: state.typeId, keyValue, status: modal.form.status, dataJson: modal.form.data });
+  const tasks = [];
+  for (const ef of modal.envForms) {
+    if (!ef.versionId || ef.disabled) continue;
+    tasks.push(api.upsertData(ef.versionId, { typeId: state.typeId, keyValue, status: ef.status, dataJson: ef.data }));
+  }
+  await Promise.all(tasks);
   modal.visible = false;
   await load();
 }
@@ -254,9 +284,59 @@ function onSelectionChange(list) {
 async function loadFieldsForSelection() {
   const params = {};
   if (state.appId) params.appId = state.appId;
+  if (state.envId) params.envId = state.envId;
   if (state.typeId) params.typeId = state.typeId;
   const list = await api.listFieldsAll(params);
   fields.value = [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
+}
+
+async function buildEnvForms(row) {
+  const key = row?.key_value || '';
+  const baseDefault = defaultData();
+  const envForms = [];
+  for (const env of envOptions.value) {
+    const version = resolveVersionForEnv(env.id);
+    const disabled = !version || version.status === 'ARCHIVED';
+    let data = { ...baseDefault };
+    let status = 'ENABLED';
+    if (version) {
+      if (env.id === state.envId && row) {
+        data = { ...baseDefault, ...(row.parsed || {}) };
+        status = row.status;
+      } else if (key) {
+        const list = await api.listData(version.id, state.typeId);
+        const match = list.find((item) => item.key_value === key);
+        if (match) {
+          data = { ...baseDefault, ...(safeParse(match.data_json) || {}) };
+          status = match.status || 'ENABLED';
+        }
+      }
+    }
+    envForms.push({
+      envId: env.id,
+      envName: env.env_name,
+      envCode: env.env_code,
+      versionId: version?.id || null,
+      versionStatus: version?.status || null,
+      status,
+      data,
+      defaultData: { ...baseDefault },
+      originalData: { ...data },
+      originalStatus: status,
+      hasRecord: !!row || (!!key && data && JSON.stringify(data) !== JSON.stringify(baseDefault)),
+      disabled
+    });
+  }
+  modal.envForms = envForms;
+}
+
+function resolveVersionForEnv(envId) {
+  if (envId === state.envId) return selectedVersion.value;
+  const candidates = props.versions
+    .filter((v) => v.type_id === state.typeId && v.app_id === state.appId && v.env_id === envId)
+    .filter((v) => ['RELEASED', 'ARCHIVED'].includes(v.status))
+    .sort((a, b) => b.id - a.id);
+  return candidates[0] || null;
 }
 
 function csvToRows(text) {
@@ -350,7 +430,7 @@ async function handleImport(e) {
   if (duplicateKeys.size || conflicts.length) {
     const messages = [];
     if (duplicateKeys.size) messages.push(`文件内存在重复Key: ${[...duplicateKeys].join(', ')}`);
-    if (conflicts.length) messages.push(`与当前版本已存在的Key冲突: ${conflicts.join(', ')}`);
+    if (conflicts.length) messages.push(`与当前环境已存在的Key冲突: ${conflicts.join(', ')}`);
     return ElMessage.error(messages.join('；'));
   }
   await api.importData(state.versionId, trimmed, state.typeId);
@@ -360,6 +440,9 @@ async function handleImport(e) {
 
 function ensureDefaults() {
   if (!state.appId && apps.value.length) state.appId = apps.value[0].id;
+  if (!envOptions.value.find((e) => e.id === state.envId)) {
+    state.envId = envOptions.value[0]?.id || null;
+  }
   if (!typeOptions.value.find((t) => t.id === state.typeId) && typeOptions.value.length) {
     state.typeId = typeOptions.value[0].id;
   }
@@ -370,14 +453,24 @@ function ensureDefaults() {
 
 async function loadRefs() {
   apps.value = await api.listApps();
+  envs.value = await api.listEnvs(state.appId || undefined);
   ensureDefaults();
 }
 
 watch(
   () => state.appId,
   async () => {
+    envs.value = await api.listEnvs(state.appId || undefined);
     ensureDefaults();
     await load();
+  }
+);
+
+watch(
+  () => state.envId,
+  () => {
+    ensureDefaults();
+    load();
   }
 );
 
@@ -410,4 +503,10 @@ loadRefs();
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }
 .preview-key { font-size:18px; font-weight:600; color:#111827; }
+.env-form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; margin-top:8px; }
+.env-card__header { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.env-card__title { font-weight:600; color:#111827; }
+.env-card__meta { display:flex; gap:6px; align-items:center; }
+.env-card__form { padding-top:4px; }
+.env-card__disabled { color:#9ca3af; font-size:12px; margin-top:4px; }
 </style>
