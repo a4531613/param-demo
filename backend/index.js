@@ -1018,7 +1018,7 @@ app.get('/api/export/html', (req, res) => {
   const nowIso = new Date().toISOString();
   const maxHeaderLen = 18;
   const maxCellLen = 64;
-  const maxTitleLen = 2000;
+  const maxTipLen = 8000;
   const maxColsPerTable = 12;
 
   const html = [];
@@ -1056,10 +1056,36 @@ app.get('/api/export/html', (req, res) => {
     tbody td { border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: top; }
     tbody tr:last-child td { border-bottom: none; }
     .cell { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
+    .tip-target { cursor: help; }
     .key { position: sticky; left: 0; z-index: 1; background: var(--card); }
     thead .key { z-index: 3; background: var(--head); }
     .status { width: 80px; }
     .mono { font-family: var(--mono); }
+    .tooltip {
+      position: fixed;
+      inset: 0 auto auto 0;
+      max-width: min(520px, calc(100vw - 28px));
+      max-height: min(420px, calc(100vh - 28px));
+      overflow: auto;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(17, 24, 39, 0.96);
+      color: #f9fafb;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      box-shadow: 0 18px 50px rgba(0,0,0,0.30);
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+      z-index: 9999;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 120ms ease, transform 120ms ease;
+      pointer-events: none;
+    }
+    .tooltip.show { opacity: 1; transform: translateY(0); }
+    .tooltip .k { display:block; color: rgba(229, 231, 235, 0.85); font-size: 11px; margin-bottom: 6px; }
+    .tooltip .v { font-family: var(--mono); }
     @media (max-width: 720px) { .meta { grid-template-columns: 1fr; } table { min-width: 900px; } }
   </style>`);
   html.push(`</head>`);
@@ -1068,10 +1094,10 @@ app.get('/api/export/html', (req, res) => {
   html.push(`<div class="header">`);
   html.push(`<div class="title">配置导出（HTML）</div>`);
   html.push(`<div class="meta">`);
-  html.push(`<div title="${escapeHtml(`${appRow.app_name || ''} (${appRow.app_code || appRow.id})`)}">应用：${escapeHtml(appRow.app_name || '')} (${escapeHtml(appRow.app_code || appRow.id)})</div>`);
-  html.push(`<div title="${escapeHtml(`${versionRow.version_no || versionRow.id}`)}">版本：${escapeHtml(versionRow.version_no || versionRow.id)}（${escapeHtml(versionRow.status || '-') }）</div>`);
-  html.push(`<div title="${escapeHtml(`${envRow.env_name || ''} (${envRow.env_code || envRow.id})`)}">环境：${escapeHtml(envRow.env_name || '')} (${escapeHtml(envRow.env_code || envRow.id)})</div>`);
-  html.push(`<div title="${escapeHtml(nowIso)}">导出时间：${escapeHtml(nowIso)}</div>`);
+  html.push(`<div class="tip-target" data-tip="${escapeHtmlAttr(`${appRow.app_name || ''} (${appRow.app_code || appRow.id})`)}">应用：${escapeHtml(appRow.app_name || '')} (${escapeHtml(appRow.app_code || appRow.id)})</div>`);
+  html.push(`<div class="tip-target" data-tip="${escapeHtmlAttr(`${versionRow.version_no || versionRow.id}`)}">版本：${escapeHtml(versionRow.version_no || versionRow.id)}（${escapeHtml(versionRow.status || '-') }）</div>`);
+  html.push(`<div class="tip-target" data-tip="${escapeHtmlAttr(`${envRow.env_name || ''} (${envRow.env_code || envRow.id})`)}">环境：${escapeHtml(envRow.env_name || '')} (${escapeHtml(envRow.env_code || envRow.id)})</div>`);
+  html.push(`<div class="tip-target" data-tip="${escapeHtmlAttr(nowIso)}">导出时间：${escapeHtml(nowIso)}</div>`);
   html.push(`</div>`);
   html.push(`</div>`);
 
@@ -1107,22 +1133,21 @@ app.get('/api/export/html', (req, res) => {
       chunk.forEach((f) => {
         const fullHeader = `${f.field_name || f.field_code} (${f.field_code})`;
         const shortHeader = shortenText(f.field_name || f.field_code, maxHeaderLen);
-        html.push(`<th title="${escapeHtml(fullHeader)}"><span class="cell">${escapeHtml(shortHeader)}</span></th>`);
+        html.push(`<th><span class="cell tip-target" data-tip="${escapeHtmlAttr(fullHeader)}">${escapeHtml(shortHeader)}</span></th>`);
       });
       html.push(`</tr></thead>`);
       html.push(`<tbody>`);
       parsed.forEach((r) => {
         html.push(`<tr>`);
         const keyShort = shortenText(r.key_value, maxCellLen);
-        const keyTitle = shortenText(r.key_value, maxTitleLen);
-        html.push(`<td class="key mono"><span class="cell" title="${escapeHtml(keyTitle)}">${escapeHtml(keyShort)}</span></td>`);
-        html.push(`<td class="status"><span class="cell" title="${escapeHtml(r.status || '')}">${escapeHtml(r.status || '')}</span></td>`);
+        const keyTip = shortenText(r.key_value, maxTipLen) + (String(r.key_value || '').length > maxTipLen ? '（已截断）' : '');
+        html.push(`<td class="key mono"><span class="cell tip-target" data-tip="${escapeHtmlAttr(keyTip)}">${escapeHtml(keyShort)}</span></td>`);
+        html.push(`<td class="status"><span class="cell tip-target" data-tip="${escapeHtmlAttr(r.status || '')}">${escapeHtml(r.status || '')}</span></td>`);
         chunk.forEach((f) => {
           const raw = toCellText(r.obj?.[f.field_code]);
           const short = shortenText(raw, maxCellLen);
-          let titleText = shortenText(raw, maxTitleLen);
-          if (raw.length > maxTitleLen) titleText += '（已截断）';
-          html.push(`<td><span class="cell" title="${escapeHtml(titleText)}">${escapeHtml(short)}</span></td>`);
+          const tipText = shortenText(raw, maxTipLen) + (raw.length > maxTipLen ? '（已截断）' : '');
+          html.push(`<td><span class="cell tip-target" data-tip="${escapeHtmlAttr(tipText)}">${escapeHtml(short)}</span></td>`);
         });
         html.push(`</tr>`);
       });
@@ -1135,6 +1160,63 @@ app.get('/api/export/html', (req, res) => {
   });
 
   html.push(`</div>`);
+  html.push(`<div id="__tooltip" class="tooltip" role="tooltip" aria-hidden="true"><span class="k"></span><span class="v"></span></div>`);
+  html.push(`<script>
+    (function () {
+      const tip = document.getElementById('__tooltip');
+      if (!tip) return;
+      const tipK = tip.querySelector('.k');
+      const tipV = tip.querySelector('.v');
+      let active = null;
+      let raf = 0;
+      const offset = 14;
+      function setPos(x, y) {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const rect = tip.getBoundingClientRect();
+        let left = x + offset;
+        let top = y + offset;
+        if (left + rect.width > vw - 10) left = Math.max(10, x - rect.width - offset);
+        if (top + rect.height > vh - 10) top = Math.max(10, y - rect.height - offset);
+        tip.style.left = left + 'px';
+        tip.style.top = top + 'px';
+      }
+      function show(el, x, y) {
+        const text = el.getAttribute('data-tip') || '';
+        if (!text) return;
+        active = el;
+        tipK.textContent = '';
+        tipV.textContent = text;
+        tip.classList.add('show');
+        tip.setAttribute('aria-hidden', 'false');
+        setPos(x, y);
+      }
+      function hide() {
+        active = null;
+        tip.classList.remove('show');
+        tip.setAttribute('aria-hidden', 'true');
+      }
+      function onMove(e) {
+        if (!active) return;
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => setPos(e.clientX, e.clientY));
+      }
+      document.addEventListener('mouseover', (e) => {
+        const el = e.target && e.target.closest && e.target.closest('[data-tip]');
+        if (!el) return;
+        show(el, e.clientX, e.clientY);
+      });
+      document.addEventListener('mouseout', (e) => {
+        if (!active) return;
+        const toEl = e.relatedTarget;
+        if (toEl && active.contains(toEl)) return;
+        hide();
+      });
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('scroll', () => { if (active) hide(); }, true);
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(); });
+    })();
+  </script>`);
   html.push(`</body>`);
   html.push(`</html>`);
   res.send(html.join('\n'));
@@ -1298,6 +1380,12 @@ function escapeHtml(input) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function escapeHtmlAttr(input) {
+  return escapeHtml(input)
+    .replace(/\r/g, '')
+    .replace(/\n/g, '&#10;');
 }
 
 function shortenText(s, maxLen) {
