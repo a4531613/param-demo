@@ -9,11 +9,12 @@
         </div>
         <div class="cc-toolbar__group">
           <el-switch v-model="filters.enabledOnly" active-text="仅启用" />
-          <el-button type="primary" @click="openModal()">新增环境</el-button>
+          <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite">新增环境</el-button>
         </div>
       </div>
     </template>
-    <el-table :data="rowsFiltered" border>
+    <el-empty v-if="!rowsFiltered.length" description="暂无环境，请先创建环境。" />
+    <el-table v-else :data="rowsFiltered" border>
       <el-table-column prop="id" label="环境ID" width="90" />
       <el-table-column prop="env_code" label="环境编码" width="140" />
       <el-table-column prop="env_name" label="环境名称" />
@@ -28,8 +29,8 @@
       <el-table-column prop="update_time" label="更新时间" width="180" />
       <el-table-column label="操作" width="160">
         <template #default="scope">
-          <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(scope.row)">删除</el-button>
+          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite">编辑</el-button>
+          <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -56,8 +57,9 @@
 
 <script setup>
 import { computed, onMounted, reactive, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
+import { capabilities } from '../userContext';
+import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 
 const apps = reactive([]);
 const rows = reactive([]);
@@ -83,13 +85,21 @@ function ensureAppDefault() {
 }
 
 async function loadApps() {
-  const list = await api.listApps();
-  apps.splice(0, apps.length, ...list);
-  ensureAppDefault();
+  try {
+    const list = await api.listApps();
+    apps.splice(0, apps.length, ...list);
+    ensureAppDefault();
+  } catch (e) {
+    toastError(e, '加载应用失败');
+  }
 }
 async function loadEnvs() {
-  const list = await api.listEnvs(filters.appId || undefined);
-  rows.splice(0, rows.length, ...list);
+  try {
+    const list = await api.listEnvs(filters.appId || undefined);
+    rows.splice(0, rows.length, ...list);
+  } catch (e) {
+    toastError(e, '加载环境失败');
+  }
 }
 
 function openModal(row) {
@@ -104,20 +114,33 @@ function openModal(row) {
 }
 
 async function save() {
-  if (!modal.form.appId || !modal.form.envCode || !modal.form.envName) return ElMessage.warning('请填写必填项');
-  if (modal.editId) {
-    await api.updateEnv(modal.editId, { envName: modal.form.envName, description: modal.form.description, enabled: modal.form.enabled });
-  } else {
-    await api.createEnv(modal.form);
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  if (!modal.form.appId || !modal.form.envCode || !modal.form.envName) return toastWarning('请填写必填项');
+  try {
+    if (modal.editId) {
+      await api.updateEnv(modal.editId, { envName: modal.form.envName, description: modal.form.description, enabled: modal.form.enabled });
+      toastSuccess('环境已更新');
+    } else {
+      await api.createEnv(modal.form);
+      toastSuccess('环境已创建');
+    }
+    modal.visible = false;
+    await loadEnvs();
+  } catch (e) {
+    toastError(e, '保存失败');
   }
-  modal.visible = false;
-  await loadEnvs();
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm('确认删除该环境？', '提示');
-  await api.deleteEnv(row.id);
-  await loadEnvs();
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  try {
+    await confirmAction('确认删除该环境？', '提示');
+    await api.deleteEnv(row.id);
+    toastSuccess('环境已删除');
+    await loadEnvs();
+  } catch (e) {
+    toastError(e, '删除失败');
+  }
 }
 
 onMounted(async () => {

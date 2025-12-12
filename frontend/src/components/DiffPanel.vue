@@ -13,6 +13,8 @@
         </div>
       </div>
     </template>
+    <el-empty v-if="!versions.length" description="暂无版本，请先创建版本。" />
+    <div v-else>
     <el-row :gutter="12">
       <el-col :span="12">
         <h4>字段变化</h4>
@@ -33,22 +35,27 @@
         </el-descriptions>
       </el-col>
     </el-row>
+    </div>
   </el-card>
 </template>
 
 <script setup>
 import { reactive } from 'vue';
-import { ElMessage } from 'element-plus';
 import { api } from '../api';
+import { toastError, toastWarning } from '../ui/feedback';
 
 const props = defineProps({ versions: { type: Array, default: () => [] } });
 const diff = reactive({ fields: { added: [], removed: [], changed: [] }, data: { added: [], removed: [], changed: [] } });
 const state = reactive({ a: null, b: null });
 
 async function load() {
-  if (!state.a || !state.b) return ElMessage.warning('请选择两个版本');
-  const res = await api.diffVersions(state.a, state.b);
-  diff.fields = res.fields;
-  diff.data = res.data;
+  if (!state.a || !state.b) return toastWarning('请选择两个版本');
+  try {
+    const res = await api.diffVersions(state.a, state.b);
+    diff.fields = res.fields;
+    diff.data = res.data;
+  } catch (e) {
+    toastError(e, '加载对比结果失败');
+  }
 }
 </script>

@@ -25,8 +25,8 @@
         </div>
 
         <div class="toolbar__actions">
-          <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
-          <el-button type="danger" @click="batchRemove" :disabled="!selected.length || isArchivedVersion">批量删除</el-button>
+          <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite || isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
+          <el-button type="danger" @click="batchRemove" :disabled="!capabilities.canWrite || !selected.length || isArchivedVersion">批量删除</el-button>
           <el-dropdown trigger="click">
             <el-button>
               更多
@@ -38,7 +38,7 @@
                 <el-dropdown-item :disabled="!state.versionId" @click="downloadData">导出</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="downloadAllHtml">导出HTML</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.versionId" @click="openVersionPreview">一键预览</el-dropdown-item>
-                <el-dropdown-item divided :disabled="isArchivedVersion || !state.versionId" @click="triggerImport">导入</el-dropdown-item>
+                <el-dropdown-item divided :disabled="!capabilities.canWrite || isArchivedVersion || !state.versionId" @click="triggerImport">导入</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -54,7 +54,16 @@
         <el-tag>生效: {{ meta.effective_from || '—' }} ~ {{ meta.effective_to || '—' }}</el-tag>
       </div>
     </template>
-    <el-table :data="displayedRows" border @selection-change="onSelectionChange">
+    <el-empty v-if="!state.versionId" description="请选择版本以查看配置数据。" />
+    <el-empty v-else-if="!state.envId || !state.typeId" description="请选择环境与配置类型。" />
+    <div v-else>
+      <el-empty v-if="!displayedRows.length" description="暂无配置数据，可新增或导入。" />
+      <div v-if="!displayedRows.length" class="cc-empty-actions">
+        <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite || isArchivedVersion">新增配置</el-button>
+        <el-button @click="triggerImport" :disabled="!capabilities.canWrite || isArchivedVersion">导入</el-button>
+        <el-button @click="downloadAllHtml" :disabled="!state.appId || !state.versionId || !state.envId">导出HTML</el-button>
+      </div>
+      <el-table v-else :data="displayedRows" border @selection-change="onSelectionChange">
       <el-table-column type="selection" width="50" />
       <el-table-column prop="id" label="数据ID" width="90" />
       <el-table-column prop="key_value" label="Key" width="200" />
@@ -85,10 +94,11 @@
       <el-table-column label="操作" width="200">
         <template #default="scope">
           <el-button link type="info" @click="openPreview(scope.row)">预览</el-button>
-          <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
+          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite || isArchivedVersion">编辑</el-button>
         </template>
       </el-table-column>
     </el-table>
+    </div>
   </el-card>
 
   <el-dialog v-model="modal.visible" title="配置项" width="80vw">
@@ -375,7 +385,8 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { capabilities } from '../userContext';
+import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 import { ArrowLeft, ArrowRight, MoreFilled } from '@element-plus/icons-vue';
 import { api } from '../api';
 
@@ -604,7 +615,7 @@ function computeFieldDiff(beforeObj, afterObj) {
 }
 
 async function openVersionPreview() {
-  if (!state.versionId) return ElMessage.warning('请选择版本');
+  if (!state.versionId) return toastWarning('请选择版本');
   versionPreview.targetId = state.versionId;
   versionPreview.baseId = guessBaseVersionId(state.versionId);
   versionPreview.envId = null;
@@ -722,17 +733,17 @@ async function loadVersionPreview() {
       versionPreview.envId = versionPreviewEnvOptions.value[0].envId;
     }
   } catch (e) {
-    ElMessage.error(e?.message || '加载失败');
+    toastError(e, '加载失败');
   } finally {
     versionPreview.loading = false;
   }
 }
 
 async function openModal(row) {
-  if (!state.versionId) return ElMessage.warning('请选择版本');
-  if (!state.envId || !state.typeId) return ElMessage.warning('请选择环境和配置类型');
+  if (!state.versionId) return toastWarning('请选择版本');
+  if (!state.envId || !state.typeId) return toastWarning('请选择环境和配置类型');
   // 归档版本禁止新增，但允许读取已存在记录
-  if (!row && isArchivedVersion.value) return ElMessage.warning('归档版本不可新增配置');
+  if (!row && isArchivedVersion.value) return toastWarning('归档版本不可新增配置');
   modal.editId = row?.id || null;
   modal.form = { keyValue: row?.key_value || '' };
   await buildEnvForms(row);
@@ -768,11 +779,12 @@ function parseEnum(text) {
 }
 
 async function save() {
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   if (!state.versionId || !state.typeId) return;
   const keyValue = (modal.form.keyValue || '').trim();
-  if (!keyValue) return ElMessage.error('Key不能为空');
+  if (!keyValue) return toastWarning('Key不能为空');
   const duplicate = rows.value.some((r) => r.key_value === keyValue && r.id !== modal.editId);
-  if (duplicate) return ElMessage.error('当前环境下已存在相同Key');
+  if (duplicate) return toastWarning('当前环境下已存在相同Key');
   modal.form.keyValue = keyValue;
   const tasks = [];
   for (const ef of modal.envForms) {
@@ -785,8 +797,9 @@ async function save() {
 }
 
 async function deleteAcrossEnvs() {
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   if (!modal.form.keyValue) return;
-  await ElMessageBox.confirm('确认删除该Key在所有环境的数据？', '提示');
+  await confirmAction('确认删除该Key在所有环境的数据？', '提示');
   const deletes = modal.envForms
     .map((ef) => ef.recordId)
     .filter(Boolean)
@@ -799,14 +812,16 @@ async function deleteAcrossEnvs() {
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm('确认删除该记录？', '提示');
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  await confirmAction('确认删除该记录？', '提示');
   await api.deleteData(row.id);
   await load();
 }
 
 async function batchRemove() {
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   if (!selected.value.length) return;
-  await ElMessageBox.confirm(`确认删除选中的 ${selected.value.length} 条记录？`, '提示');
+  await confirmAction(`确认删除选中的 ${selected.value.length} 条记录？`, '提示');
   const keysToDelete = [...new Set(selected.value.map((r) => r.key_value))];
   const ids = await collectIdsAcrossEnvs(keysToDelete);
   for (const id of ids) {
@@ -1034,6 +1049,7 @@ function triggerImport() {
 }
 
 async function handleImport(e) {
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   const file = e.target.files?.[0];
   e.target.value = '';
   if (!file) return;
@@ -1043,7 +1059,7 @@ async function handleImport(e) {
     key_value: (r.key_value || r.key || '').trim(),
     status: r.status || 'ENABLED'
   })).filter((r) => r.key_value);
-  if (!importedRows.length) return ElMessage.warning('导入文件无有效数据');
+  if (!importedRows.length) return toastWarning('导入文件无有效数据');
   // ensure only current-field columns sent
   const fieldCodes = new Set(fields.value.map((f) => f.field_code));
   const trimmed = importedRows.map((r) => {
@@ -1064,10 +1080,10 @@ async function handleImport(e) {
     const messages = [];
     if (duplicateKeys.size) messages.push(`文件内存在重复Key: ${[...duplicateKeys].join(', ')}`);
     if (conflicts.length) messages.push(`与当前环境已存在的Key冲突: ${conflicts.join(', ')}`);
-    return ElMessage.error(messages.join('；'));
+    return toastWarning(messages.join('；'));
   }
   await api.importData(state.versionId, trimmed, state.typeId, state.envId);
-  ElMessage.success(`已导入${trimmed.length}条`);
+  toastSuccess(`已导入${trimmed.length}条`);
   await load();
 }
 

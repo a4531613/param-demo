@@ -7,11 +7,12 @@
         </div>
         <div class="cc-toolbar__group">
           <el-switch v-model="filters.enabledOnly" active-text="仅启用" />
-          <el-button type="primary" @click="openModal()">新增应用</el-button>
+          <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite">新增应用</el-button>
         </div>
       </div>
     </template>
-    <el-table :data="filtered" border>
+    <el-empty v-if="!filtered.length" description="暂无应用，请先创建应用。" />
+    <el-table v-else :data="filtered" border>
       <el-table-column prop="id" label="应用ID" width="90" />
       <el-table-column prop="app_code" label="应用编码" width="160" />
       <el-table-column prop="app_name" label="应用名称" />
@@ -25,8 +26,8 @@
       <el-table-column prop="update_time" label="更新时间" width="180" />
       <el-table-column label="操作" width="160">
         <template #default="scope">
-          <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(scope.row)">删除</el-button>
+          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite">编辑</el-button>
+          <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -48,8 +49,9 @@
 
 <script setup>
 import { computed, onMounted, reactive } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
+import { capabilities } from '../userContext';
+import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 
 const filters = reactive({ keyword: '', enabledOnly: false });
 const modal = reactive({
@@ -80,24 +82,41 @@ function openModal(row) {
 }
 
 async function load() {
-  state.rows = await api.listApps();
+  try {
+    state.rows = await api.listApps();
+  } catch (e) {
+    toastError(e, '加载应用失败');
+  }
 }
 
 async function save() {
-  if (!modal.form.appCode || !modal.form.appName) return ElMessage.warning('请填写编码和名称');
-  if (modal.editId) {
-    await api.updateApp(modal.editId, { appName: modal.form.appName, description: modal.form.description, enabled: modal.form.enabled });
-  } else {
-    await api.createApp(modal.form);
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  if (!modal.form.appCode || !modal.form.appName) return toastWarning('请填写编码和名称');
+  try {
+    if (modal.editId) {
+      await api.updateApp(modal.editId, { appName: modal.form.appName, description: modal.form.description, enabled: modal.form.enabled });
+      toastSuccess('应用已更新');
+    } else {
+      await api.createApp(modal.form);
+      toastSuccess('应用已创建');
+    }
+    modal.visible = false;
+    await load();
+  } catch (e) {
+    toastError(e, '保存失败');
   }
-  modal.visible = false;
-  await load();
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm('确认删除该应用？', '提示');
-  await api.deleteApp(row.id);
-  await load();
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  try {
+    await confirmAction('确认删除该应用？', '提示');
+    await api.deleteApp(row.id);
+    toastSuccess('应用已删除');
+    await load();
+  } catch (e) {
+    toastError(e, '删除失败');
+  }
 }
 
 onMounted(load);

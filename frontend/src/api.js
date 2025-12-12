@@ -1,8 +1,20 @@
 const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api';
 
+import { userContext } from './userContext';
+
+function buildHeaders(extra = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-User': userContext.name || 'demo',
+    'X-Role': userContext.role || 'viewer',
+    ...extra
+  };
+  return Object.fromEntries(Object.entries(headers).filter(([, v]) => v != null));
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${apiBase}${path}`, {
-    headers: { 'Content-Type': 'application/json', 'X-User': 'demo', 'X-Role': 'admin' },
+    headers: buildHeaders(options.headers || {}),
     ...options
   });
   if (!res.ok) {
@@ -50,17 +62,17 @@ export const api = {
   listVersionDataAll: (versionId) => request(`/versions/${versionId}/data/all`),
   upsertData: (versionId, payload) => request(`/versions/${versionId}/data`, { method: 'POST', body: JSON.stringify(payload) }),
   exportData: async (versionId, typeId, envId) => {
-    const res = await fetch(`${apiBase}/versions/${versionId}/data/export?${new URLSearchParams({ typeId, envId })}`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
+    const res = await fetch(`${apiBase}/versions/${versionId}/data/export?${new URLSearchParams({ typeId, envId })}`, { headers: buildHeaders({ 'Content-Type': null }) });
     if (!res.ok) throw new Error(await res.text());
     return res.text();
   },
   exportTemplate: async (versionId, typeId) => {
-    const res = await fetch(`${apiBase}/versions/${versionId}/data/template?${new URLSearchParams({ typeId })}`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
+    const res = await fetch(`${apiBase}/versions/${versionId}/data/template?${new URLSearchParams({ typeId })}`, { headers: buildHeaders({ 'Content-Type': null }) });
     if (!res.ok) throw new Error(await res.text());
     return res.text();
   },
   exportAllHtml: async (appId, versionId, envId) => {
-    const res = await fetch(`${apiBase}/export/html?${new URLSearchParams({ appId, versionId, envId })}`, { headers: { 'X-User': 'demo', 'X-Role': 'admin' } });
+    const res = await fetch(`${apiBase}/export/html?${new URLSearchParams({ appId, versionId, envId })}`, { headers: buildHeaders({ 'Content-Type': null }) });
     if (!res.ok) throw new Error(await res.text());
     const blob = await res.blob();
     const cd = res.headers.get('content-disposition') || '';

@@ -12,10 +12,11 @@
             <el-option label="已归档" value="ARCHIVED" />
           </el-select>
         </div>
-        <el-button type="primary" @click="openModal()">新增版本</el-button>
+        <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite">新增版本</el-button>
       </div>
     </template>
-    <el-table :data="versions" border>
+    <el-empty v-if="!versions.length" description="暂无版本，请先创建版本。" />
+    <el-table v-else :data="versions" border>
       <el-table-column prop="id" label="版本ID" width="90" />
       <el-table-column prop="version_no" label="版本号" width="140" />
       <el-table-column prop="app_code" label="应用" width="160" />
@@ -34,11 +35,11 @@
       <el-table-column prop="update_time" label="更新时间" width="180" />
       <el-table-column label="操作" width="220">
         <template #default="scope">
-          <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
-          <el-button link type="success" @click="setStatus(scope.row, 'RELEASED')" :disabled="!canRelease(scope.row)">发布</el-button>
-          <el-button link type="warning" @click="setStatus(scope.row, 'ARCHIVED')" :disabled="scope.row.status !== 'RELEASED'">归档</el-button>
-          <el-button link type="info" @click="setStatus(scope.row, 'PENDING_RELEASE')" :disabled="scope.row.status !== 'RELEASED'">待发布</el-button>
-          <el-button link type="danger" @click="remove(scope.row)" :disabled="scope.row.status === 'RELEASED'">删除</el-button>
+          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite">编辑</el-button>
+          <el-button link type="success" @click="setStatus(scope.row, 'RELEASED')" :disabled="!capabilities.canWrite || !canRelease(scope.row)">发布</el-button>
+          <el-button link type="warning" @click="setStatus(scope.row, 'ARCHIVED')" :disabled="!capabilities.canWrite || scope.row.status !== 'RELEASED'">归档</el-button>
+          <el-button link type="info" @click="setStatus(scope.row, 'PENDING_RELEASE')" :disabled="!capabilities.canWrite || scope.row.status !== 'RELEASED'">待发布</el-button>
+          <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite || scope.row.status === 'RELEASED'">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -66,8 +67,9 @@
 
 <script setup>
 import { reactive, onMounted, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
+import { capabilities } from '../userContext';
+import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 
 const apps = reactive([]);
 const versions = reactive([]);
@@ -84,18 +86,26 @@ const statusLabel = (s) => statusLabelMap[s] || s;
 const canRelease = (row) => ['PENDING_RELEASE', 'ARCHIVED'].includes(row.status);
 
 async function loadRefs() {
-  apps.splice(0, apps.length, ...(await api.listApps()));
-  if (!filters.appId && apps.length) {
-    filters.appId = apps[0].id;
+  try {
+    apps.splice(0, apps.length, ...(await api.listApps()));
+    if (!filters.appId && apps.length) {
+      filters.appId = apps[0].id;
+    }
+  } catch (e) {
+    toastError(e, '加载应用失败');
   }
 }
 
 async function loadVersions() {
-  const params = {};
-  if (filters.appId) params.appId = filters.appId;
-  if (filters.status) params.status = filters.status;
-  const list = await api.listVersionsAll(params);
-  versions.splice(0, versions.length, ...list);
+  try {
+    const params = {};
+    if (filters.appId) params.appId = filters.appId;
+    if (filters.status) params.status = filters.status;
+    const list = await api.listVersionsAll(params);
+    versions.splice(0, versions.length, ...list);
+  } catch (e) {
+    toastError(e, '加载版本失败');
+  }
 }
 
 function openModal(row) {
@@ -117,37 +127,55 @@ function openModal(row) {
 }
 
 async function save() {
-  if (!modal.form.appId || !modal.form.versionNo) return ElMessage.warning('请填写应用与版本号');
-  if (modal.editId) {
-    await api.updateVersion(modal.editId, {
-      versionNo: modal.form.versionNo,
-      description: modal.form.description,
-      effectiveFrom: modal.form.effectiveFrom,
-      effectiveTo: modal.form.effectiveTo,
-      enabled: modal.form.enabled
-    });
-  } else {
-    await api.createVersionGlobal({
-      appId: modal.form.appId,
-      versionNo: modal.form.versionNo,
-      description: modal.form.description,
-      enabled: modal.form.enabled
-    });
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  if (!modal.form.appId || !modal.form.versionNo) return toastWarning('请填写应用与版本号');
+  try {
+    if (modal.editId) {
+      await api.updateVersion(modal.editId, {
+        versionNo: modal.form.versionNo,
+        description: modal.form.description,
+        effectiveFrom: modal.form.effectiveFrom,
+        effectiveTo: modal.form.effectiveTo,
+        enabled: modal.form.enabled
+      });
+      toastSuccess('版本已更新');
+    } else {
+      await api.createVersionGlobal({
+        appId: modal.form.appId,
+        versionNo: modal.form.versionNo,
+        description: modal.form.description,
+        enabled: modal.form.enabled
+      });
+      toastSuccess('版本已创建');
+    }
+    modal.visible = false;
+    await loadVersions();
+  } catch (e) {
+    toastError(e, '保存失败');
   }
-  modal.visible = false;
-  await loadVersions();
 }
 
 async function setStatus(row, status) {
-  await api.updateVersion(row.id, { status });
-  ElMessage.success(`状态已更新为${statusLabel(status)}`);
-  await loadVersions();
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  try {
+    await api.updateVersion(row.id, { status });
+    toastSuccess(`状态已更新为${statusLabel(status)}`);
+    await loadVersions();
+  } catch (e) {
+    toastError(e, '状态更新失败');
+  }
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm('确认删除该版本？', '提示');
-  await api.deleteVersion(row.id);
-  await loadVersions();
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  try {
+    await confirmAction('确认删除该版本？', '提示');
+    await api.deleteVersion(row.id);
+    toastSuccess('版本已删除');
+    await loadVersions();
+  } catch (e) {
+    toastError(e, '删除失败');
+  }
 }
 
 onMounted(async () => {

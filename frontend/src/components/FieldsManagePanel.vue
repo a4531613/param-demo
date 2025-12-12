@@ -19,10 +19,11 @@
         </div>
         <el-input v-model="filters.keyword" placeholder="按字段Key/名称过滤" clearable class="cc-control--md" />
         </div>
-        <el-button type="primary" @click="openModal()">新增字段</el-button>
+        <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite">新增字段</el-button>
       </div>
     </template>
-    <el-table :data="rowsFiltered" border class="cc-table-full" :row-key="row => row.id" ref="tableRef">
+    <el-empty v-if="!rowsFiltered.length" description="暂无字段，请先创建字段。" />
+    <el-table v-else :data="rowsFiltered" border class="cc-table-full" :row-key="row => row.id" ref="tableRef">
       <el-table-column label="排序" width="80">
         <template #default="scope">
           <span class="drag-handle">☰</span> {{ scope.row.sort_order ?? '-' }}
@@ -48,8 +49,8 @@
       <el-table-column prop="update_time" label="更新时间" width="180" />
       <el-table-column label="操作" width="160">
         <template #default="scope">
-          <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(scope.row)">删除</el-button>
+          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite">编辑</el-button>
+          <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -93,8 +94,9 @@
 
 <script setup>
 import { computed, onMounted, reactive, watch, nextTick, ref } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api';
+import { capabilities } from '../userContext';
+import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 
 const apps = reactive([]);
 const types = reactive([]);
@@ -138,9 +140,13 @@ function ensureDefaults() {
 }
 
 async function loadRefs() {
-  apps.splice(0, apps.length, ...(await api.listApps()));
-  types.splice(0, types.length, ...(await api.listTypes()));
-  ensureDefaults();
+  try {
+    apps.splice(0, apps.length, ...(await api.listApps()));
+    types.splice(0, types.length, ...(await api.listTypes()));
+    ensureDefaults();
+  } catch (e) {
+    toastError(e, '加载引用数据失败');
+  }
 }
 
 async function loadFields() {
@@ -189,26 +195,37 @@ function openModal(row) {
 }
 
 async function save() {
-  if (!modal.form.typeId || !modal.form.fieldCode || !modal.form.fieldName) {
-    return ElMessage.warning('请填写必填项（类型/字段标识/名称）');
-  }
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  if (!modal.form.typeId || !modal.form.fieldCode || !modal.form.fieldName) return toastWarning('请填写必填项（类型/字段标识/名称）');
   const payload = { ...modal.form };
   if (payload.enumOptions) {
-    try { payload.enumOptions = JSON.parse(payload.enumOptions); } catch (e) { return ElMessage.error('枚举值需为 JSON'); }
+    try { payload.enumOptions = JSON.parse(payload.enumOptions); } catch (e) { return toastWarning('枚举值需为 JSON'); }
   }
-  if (modal.editId) {
-    await api.updateField(modal.editId, payload);
-  } else {
-    await api.createFieldGlobal(payload);
+  try {
+    if (modal.editId) {
+      await api.updateField(modal.editId, payload);
+      toastSuccess('字段已更新');
+    } else {
+      await api.createFieldGlobal(payload);
+      toastSuccess('字段已创建');
+    }
+    modal.visible = false;
+    await loadFields();
+  } catch (e) {
+    toastError(e, '保存失败');
   }
-  modal.visible = false;
-  await loadFields();
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm('确认删除该字段？', '提示');
-  await api.deleteField(row.id);
-  await loadFields();
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  try {
+    await confirmAction('确认删除该字段？', '提示');
+    await api.deleteField(row.id);
+    toastSuccess('字段已删除');
+    await loadFields();
+  } catch (e) {
+    toastError(e, '删除失败');
+  }
 }
 
 onMounted(async () => {

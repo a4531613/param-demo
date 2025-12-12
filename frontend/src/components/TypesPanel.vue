@@ -8,10 +8,11 @@
             <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
           </el-select>
         </div>
-        <el-button type="primary" @click="openModal()">新增类型</el-button>
+        <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite">新增类型</el-button>
       </div>
     </template>
-    <el-table :data="filtered" border class="cc-table-full">
+    <el-empty v-if="!filtered.length" description="暂无配置类型，请先创建类型。" />
+    <el-table v-else :data="filtered" border class="cc-table-full">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="type_code" label="TypeCode" width="160" />
       <el-table-column prop="type_name" label="名称" />
@@ -26,8 +27,8 @@
       </el-table-column>
       <el-table-column width="180" label="操作">
         <template #default="scope">
-          <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(scope.row)">删除</el-button>
+          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite">编辑</el-button>
+          <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -54,8 +55,9 @@
 
 <script setup>
 import { computed, reactive } from 'vue';
-import { ElMessageBox, ElMessage } from 'element-plus';
 import { api } from '../api';
+import { capabilities } from '../userContext';
+import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 
 const props = defineProps({ types: { type: Array, default: () => [] } });
 const apps = reactive([]);
@@ -111,29 +113,43 @@ async function openModal(row) {
 }
 
 async function save() {
-  if (!modal.form.typeName || !modal.form.appId) {
-    ElMessage.warning('请填写名称并选择应用');
-    return;
-  }
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  if (!modal.form.typeName || !modal.form.appId) return toastWarning('请填写名称并选择应用');
   const payload = { typeName: modal.form.typeName, description: modal.form.description, enabled: modal.form.enabled, appId: modal.form.appId };
-  if (modal.editId) {
-    await api.updateType(modal.editId, payload);
-  } else {
-    await api.createType(payload);
+  try {
+    if (modal.editId) {
+      await api.updateType(modal.editId, payload);
+      toastSuccess('类型已更新');
+    } else {
+      await api.createType(payload);
+      toastSuccess('类型已创建');
+    }
+    modal.visible = false;
+    emits('refreshTypes');
+  } catch (e) {
+    toastError(e, '保存失败');
   }
-  modal.visible = false;
-  emits('refreshTypes');
 }
 
 async function remove(row) {
-  await ElMessageBox.confirm('确认删除该类型？', '提示');
-  await api.deleteType(row.id);
-  emits('refreshTypes');
+  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
+  try {
+    await confirmAction('确认删除该类型？', '提示');
+    await api.deleteType(row.id);
+    toastSuccess('类型已删除');
+    emits('refreshTypes');
+  } catch (e) {
+    toastError(e, '删除失败');
+  }
 }
 
 async function loadRefs() {
-  apps.splice(0, apps.length, ...(await api.listApps()));
-  ensureDefaults();
+  try {
+    apps.splice(0, apps.length, ...(await api.listApps()));
+    ensureDefaults();
+  } catch (e) {
+    toastError(e, '加载应用失败');
+  }
 }
 
 loadRefs();
