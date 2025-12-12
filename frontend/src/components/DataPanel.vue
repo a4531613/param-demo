@@ -64,13 +64,12 @@
         <template #default="scope">
           <el-button link type="info" @click="openPreview(scope.row)">预览</el-button>
           <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
-          <el-button link type="danger" @click="remove(scope.row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
   </el-card>
 
-  <el-dialog v-model="modal.visible" title="配置项" width="820px">
+  <el-dialog v-model="modal.visible" title="配置项" width="900px">
     <el-form :model="modal.form" label-width="120px">
       <el-form-item label="Key"><el-input v-model="modal.form.keyValue" :disabled="!!modal.editId" /></el-form-item>
     </el-form>
@@ -106,6 +105,7 @@
       </el-card>
     </div>
     <template #footer>
+      <el-button type="danger" v-if="modal.editId" @click="deleteAcrossEnvs">删除</el-button>
       <el-button @click="modal.visible=false">取消</el-button>
       <el-button type="primary" @click="save">保存</el-button>
     </template>
