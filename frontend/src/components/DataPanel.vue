@@ -8,19 +8,13 @@
         <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
           <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
         </el-select>
-        <div class="tag-group" v-if="envOptions.length">
-          <span class="tag-label">环境</span>
-          <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
-            {{ `${e.env_name} (${e.env_code})` }}
-          </el-check-tag>
-        </div>
         <div class="tag-group" v-if="typeOptions.length">
           <span class="tag-label">配置类型</span>
           <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
             {{ `${t.type_name} (${t.type_code})` }}
           </el-check-tag>
         </div>
-        <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
+        <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.typeId">新增配置</el-button>
         <el-button type="danger" @click="batchRemove" :disabled="!selected.length || isArchivedVersion">批量删除</el-button>
         <el-button @click="downloadTemplate" :disabled="!state.versionId">下载模板</el-button>
         <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
@@ -33,7 +27,6 @@
         <el-tag>版本号: {{ meta.version_no }}</el-tag>
         <el-tag>类型ID: {{ meta.type_id }}</el-tag>
         <el-tag>应用ID: {{ meta.app_id }}</el-tag>
-        <el-tag>环境ID: {{ meta.env_id }}</el-tag>
         <el-tag>生效: {{ meta.effective_from || '—' }} ~ {{ meta.effective_to || '—' }}</el-tag>
       </div>
     </template>
@@ -107,31 +100,6 @@
           {{ formatValue(preview.row.parsed?.[f.field_code]) }}
         </el-descriptions-item>
       </el-descriptions>
-
-      <div class="compare-title" v-if="preview.compare.envs.length">跨环境对比</div>
-      <el-skeleton v-if="preview.loading" :rows="3" animated />
-      <el-table
-        v-else-if="preview.compare.envs.length"
-        :data="preview.compare.rows"
-        border
-        size="small"
-        class="compare-table"
-      >
-        <el-table-column prop="field_name" label="字段" width="180" fixed />
-        <el-table-column
-          v-for="env in preview.compare.envs"
-          :key="env.envId"
-          :label="env.label"
-          :min-width="140"
-        >
-          <template #default="scope">
-            <span :class="['compare-cell', { diff: isDiff(scope.row, env.envId) }]">
-              {{ formatValue(scope.row.values[env.envId]) || '—' }}
-            </span>
-          </template>
-        </el-table-column>
-      </el-table>
-      <div v-else class="compare-empty">暂无其他环境的同名配置</div>
     </div>
     <template #footer>
       <el-button @click="preview.visible=false">关闭</el-button>
@@ -149,8 +117,7 @@ const rows = ref([]);
 const fields = ref([]);
 const meta = ref(null);
 const apps = ref([]);
-const envs = ref([]);
-const state = reactive({ appId: null, envId: null, typeId: null, versionId: null });
+const state = reactive({ appId: null, typeId: null, versionId: null });
 const showEnabledOnly = ref(true);
 const displayedRows = computed(() =>
   showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value
@@ -158,26 +125,16 @@ const displayedRows = computed(() =>
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '', status: 'ENABLED', data: {} } });
 const preview = reactive({
   visible: false,
-  row: null,
-  loading: false,
-  compare: { envs: [], rows: [] }
+  row: null
 });
 const importInput = ref(null);
 const selected = ref([]);
 
-const envOptions = computed(() => envs.value.filter((e) => !state.appId || e.app_id === state.appId));
-const typeOptions = computed(() =>
-  props.types.filter(
-    (t) =>
-      (!state.appId || t.app_id === state.appId) &&
-      (!state.envId || !t.env_id || t.env_id === state.envId)
-  )
-);
+const typeOptions = computed(() => props.types.filter((t) => !state.appId || t.app_id === state.appId));
 const versionOptions = computed(() =>
   props.versions.filter(
     (v) =>
       (!state.appId || v.app_id === state.appId) &&
-      (!state.envId || v.env_id === state.envId || v.env_id == null) &&
       ['RELEASED', 'ARCHIVED'].includes(v.status)
   )
 );
@@ -193,7 +150,6 @@ const formatValue = (v) => {
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 };
-const normalize = (v) => (v === undefined || v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
 
 async function load() {
   if (!state.versionId || !state.typeId) return;
@@ -206,67 +162,19 @@ async function load() {
   }));
 }
 
-function onEnvSelect(id) {
-  state.envId = id;
-  load();
-}
 function onTypeSelect(id) {
   state.typeId = id;
   load();
 }
 
-async function loadPreviewComparison(keyValue) {
-  preview.loading = true;
-  preview.compare = { envs: [], rows: [] };
-  const targetVersions = props.versions.filter(
-    (v) => v.type_id === state.typeId && ['RELEASED', 'ARCHIVED', 'PENDING_RELEASE'].includes(v.status)
-  );
-  try {
-    const results = await Promise.all(
-      targetVersions.map(async (v) => {
-        const list = await api.listData(v.id, state.typeId);
-        const hit = list.find((item) => item.key_value === keyValue);
-        const env = envs.value.find((e) => e.id === v.env_id);
-        return {
-          envId: v.env_id,
-          envCode: env?.env_code || '',
-          envName: env?.env_name || '未知环境',
-          label: env ? `${env.env_name} (${env.env_code})` : `环境 ${v.env_id}`,
-          parsed: hit ? safeParse(hit.data_json) : null,
-          status: hit?.status || null
-        };
-      })
-    );
-    const envsUsed = results.filter((r) => r.envId != null);
-    const rowsForFields = fields.value.map((f) => {
-      const values = {};
-      envsUsed.forEach((env) => { values[env.envId] = env.parsed ? env.parsed[f.field_code] : null; });
-      return { field_code: f.field_code, field_name: f.field_name, values };
-    });
-    preview.compare = { envs: envsUsed, rows: rowsForFields };
-  } catch (err) {
-    ElMessage.error(err.message || '对比数据加载失败');
-  } finally {
-    preview.loading = false;
-  }
-}
-
 async function openPreview(row) {
   preview.row = row;
   preview.visible = true;
-  await loadPreviewComparison(row.key_value);
-}
-
-function isDiff(row, envId) {
-  const all = preview.compare.envs.map((env) => normalize(row.values[env.envId]));
-  const base = all.find((v) => v !== '');
-  if (base === undefined) return false;
-  return normalize(row.values[envId]) !== base || all.some((v) => v !== base);
 }
 
 function openModal(row) {
   if (!state.versionId) return ElMessage.warning('请选择版本');
-  if (!state.envId || !state.typeId) return ElMessage.warning('请选择环境和配置类型');
+  if (!state.typeId) return ElMessage.warning('请选择配置类型');
   // 归档版本禁止新增，但允许读取已存在记录
   if (!row && isArchivedVersion.value) return ElMessage.warning('归档版本不可新增配置');
   if (row) {
@@ -346,7 +254,6 @@ function onSelectionChange(list) {
 async function loadFieldsForSelection() {
   const params = {};
   if (state.appId) params.appId = state.appId;
-  if (state.envId) params.envId = state.envId;
   if (state.typeId) params.typeId = state.typeId;
   fields.value = await api.listFieldsAll(params);
 }
@@ -452,9 +359,6 @@ async function handleImport(e) {
 
 function ensureDefaults() {
   if (!state.appId && apps.value.length) state.appId = apps.value[0].id;
-  if (!envOptions.value.find((e) => e.id === state.envId)) {
-    state.envId = envOptions.value[0]?.id || null;
-  }
   if (!typeOptions.value.find((t) => t.id === state.typeId) && typeOptions.value.length) {
     state.typeId = typeOptions.value[0].id;
   }
@@ -465,24 +369,14 @@ function ensureDefaults() {
 
 async function loadRefs() {
   apps.value = await api.listApps();
-  envs.value = await api.listEnvs(state.appId || undefined);
   ensureDefaults();
 }
 
 watch(
   () => state.appId,
   async () => {
-    envs.value = await api.listEnvs(state.appId || undefined);
     ensureDefaults();
     await load();
-  }
-);
-
-watch(
-  () => state.envId,
-  () => {
-    ensureDefaults();
-    load();
   }
 );
 
@@ -515,8 +409,4 @@ loadRefs();
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }
 .preview-key { font-size:18px; font-weight:600; color:#111827; }
-.compare-title { font-weight:600; color:#374151; margin-top:6px; }
-.compare-table .compare-cell { display:inline-block; padding:2px 4px; }
-.compare-table .compare-cell.diff { background:#fff7ed; color:#c2410c; padding:2px 6px; border-radius:4px; }
-.compare-empty { color:#9ca3af; text-align:center; padding:8px 0; }
 </style>

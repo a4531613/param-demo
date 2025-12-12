@@ -3,21 +3,10 @@
     <template #header>
       <div class="toolbar">
         <div class="filters">
-          <el-input v-model="filters.keyword" placeholder="按 code / 名称过滤" style="width:200px;" clearable />
+          <el-input v-model="filters.keyword" placeholder="筛code / 名称过滤" style="width:200px;" clearable />
           <el-select v-model="filters.appId" placeholder="应用" style="width:160px;">
             <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
           </el-select>
-          <div class="env-tags" v-if="filterEnvOptions.length">
-            <span class="env-label">环境</span>
-            <el-check-tag
-              v-for="e in filterEnvOptions"
-              :key="e.id"
-              :checked="filters.envId === e.id"
-              @click="filters.envId = e.id"
-            >
-              {{ `${e.env_name} (${e.env_code})` }}
-            </el-check-tag>
-          </div>
         </div>
         <el-button type="primary" @click="openModal()">新增类型</el-button>
       </div>
@@ -27,7 +16,6 @@
       <el-table-column prop="type_code" label="TypeCode" width="160" />
       <el-table-column prop="type_name" label="名称" />
       <el-table-column prop="app_name" label="应用" />
-      <el-table-column prop="env_name" label="环境" />
       <el-table-column prop="description" label="描述" />
       <el-table-column prop="create_user" label="创建人" width="120" />
       <el-table-column prop="create_time" label="创建时间" width="180" />
@@ -54,11 +42,6 @@
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
       </el-form-item>
-      <el-form-item label="环境">
-        <el-select v-model="modal.form.envId" placeholder="请选择环境">
-          <el-option v-for="e in modalEnvOptions" :key="e.id" :label="`${e.env_name} (${e.env_code})`" :value="e.id" />
-        </el-select>
-      </el-form-item>
       <el-form-item label="启用"><el-switch v-model="modal.form.enabled" /></el-form-item>
       <el-form-item label="描述"><el-input v-model="modal.form.description" type="textarea" /></el-form-item>
     </el-form>
@@ -70,53 +53,33 @@
 </template>
 
 <script setup>
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 import { api } from '../api';
 
 const props = defineProps({ types: { type: Array, default: () => [] } });
 const apps = reactive([]);
-const envs = reactive([]);
 const emits = defineEmits(['refreshTypes']);
 
-const filters = reactive({ keyword: '', appId: null, envId: null });
+const filters = reactive({ keyword: '', appId: null });
 const modal = reactive({
   visible: false,
   editId: null,
-  form: { typeCode: '', typeName: '', appId: null, envId: null, enabled: true, description: '' }
+  form: { typeCode: '', typeName: '', appId: null, enabled: true, description: '' }
 });
-
-const filterEnvOptions = computed(() => envs.filter((e) => !filters.appId || e.app_id === filters.appId));
-const modalEnvOptions = computed(() => envs.filter((e) => !modal.form.appId || e.app_id === modal.form.appId));
 
 const filtered = computed(() => {
   return props.types.filter((t) => {
     const kw = filters.keyword.toLowerCase();
     const okKw = !kw || t.type_code.toLowerCase().includes(kw) || (t.type_name || '').toLowerCase().includes(kw);
     const okApp = !filters.appId || t.app_id === filters.appId;
-    const okEnv = !filters.envId || t.env_id === filters.envId;
-    return okKw && okApp && okEnv;
+    return okKw && okApp;
   });
 });
 
-function envsForApp(appId) {
-  return envs.filter((e) => !appId || e.app_id === appId);
-}
-
-function ensureFilterDefaults() {
+function ensureDefaults() {
   if (!filters.appId && apps.length) filters.appId = apps[0].id;
-  const envList = envsForApp(filters.appId);
-  if (!envList.find((e) => e.id === filters.envId)) {
-    filters.envId = envList[0]?.id || null;
-  }
-}
-
-function ensureModalDefaults() {
   if (!modal.form.appId && apps.length) modal.form.appId = apps[0].id;
-  const envList = envsForApp(modal.form.appId);
-  if (!envList.find((e) => e.id === modal.form.envId)) {
-    modal.form.envId = envList[0]?.id || null;
-  }
 }
 
 async function fillNextTypeCode() {
@@ -131,23 +94,28 @@ async function fillNextTypeCode() {
 async function openModal(row) {
   if (row) {
     modal.editId = row.id;
-    modal.form = { typeCode: row.type_code, typeName: row.type_name, appId: row.app_id, envId: row.env_id, enabled: !!row.enabled, description: row.description || '' };
+    modal.form = {
+      typeCode: row.type_code,
+      typeName: row.type_name,
+      appId: row.app_id,
+      enabled: !!row.enabled,
+      description: row.description || ''
+    };
   } else {
     modal.editId = null;
-    modal.form = { typeCode: '', typeName: '', appId: filters.appId || (apps[0] && apps[0].id) || null, envId: null, enabled: true, description: '' };
-    ensureModalDefaults();
+    modal.form = { typeCode: '', typeName: '', appId: filters.appId || (apps[0] && apps[0].id) || null, enabled: true, description: '' };
     await fillNextTypeCode();
   }
-  ensureModalDefaults();
+  ensureDefaults();
   modal.visible = true;
 }
 
 async function save() {
-  if (!modal.form.typeName || !modal.form.appId || !modal.form.envId) {
-    ElMessage.warning('请填写名称并选择应用/环境');
+  if (!modal.form.typeName || !modal.form.appId) {
+    ElMessage.warning('请填写名称并选择应用');
     return;
   }
-  const payload = { typeName: modal.form.typeName, description: modal.form.description, enabled: modal.form.enabled, appId: modal.form.appId, envId: modal.form.envId };
+  const payload = { typeName: modal.form.typeName, description: modal.form.description, enabled: modal.form.enabled, appId: modal.form.appId };
   if (modal.editId) {
     await api.updateType(modal.editId, payload);
   } else {
@@ -165,18 +133,8 @@ async function remove(row) {
 
 async function loadRefs() {
   apps.splice(0, apps.length, ...(await api.listApps()));
-  envs.splice(0, envs.length, ...(await api.listEnvs()));
-  ensureFilterDefaults();
+  ensureDefaults();
 }
-
-watch(() => filters.appId, () => {
-  const envList = envsForApp(filters.appId);
-  filters.envId = envList[0]?.id || null;
-});
-
-watch(() => modal.form.appId, () => {
-  ensureModalDefaults();
-});
 
 loadRefs();
 </script>
@@ -191,14 +149,5 @@ loadRefs();
   display: flex;
   align-items: center;
   gap: 8px;
-}
-.env-tags {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.env-label {
-  color: #6b7280;
-  font-size: 12px;
 }
 </style>
