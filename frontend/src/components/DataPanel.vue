@@ -69,7 +69,7 @@
     </el-table>
   </el-card>
 
-  <el-dialog v-model="modal.visible" title="配置项" width="900px">
+  <el-dialog v-model="modal.visible" title="配置项" width="80vw">
     <el-form :model="modal.form" label-width="120px">
       <el-form-item label="Key"><el-input v-model="modal.form.keyValue" :disabled="!!modal.editId" /></el-form-item>
     </el-form>
