@@ -2,32 +2,48 @@
   <el-card>
     <template #header>
       <div class="toolbar">
-        <el-select v-model="state.appId" placeholder="应用" style="width:200px;">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
-        </el-select>
-        <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
-          <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
-        </el-select>
-        <div class="tag-group" v-if="envOptions.length">
-          <span class="tag-label">环境</span>
-          <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
-            {{ `${e.env_name} (${e.env_code})` }}
-          </el-check-tag>
+        <div class="toolbar__filters">
+          <el-select v-model="state.appId" placeholder="应用" style="width:200px;">
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+          </el-select>
+          <el-select v-model="state.versionId" placeholder="选择版本" style="width:220px;" @change="load">
+            <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
+          </el-select>
+          <div class="tag-group" v-if="envOptions.length">
+            <span class="tag-label">环境</span>
+            <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
+              {{ `${e.env_name} (${e.env_code})` }}
+            </el-check-tag>
+          </div>
+          <div class="tag-group" v-if="typeOptions.length">
+            <span class="tag-label">配置类型</span>
+            <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
+              {{ `${t.type_name} (${t.type_code})` }}
+            </el-check-tag>
+          </div>
+          <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
         </div>
-        <div class="tag-group" v-if="typeOptions.length">
-          <span class="tag-label">配置类型</span>
-          <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
-            {{ `${t.type_name} (${t.type_code})` }}
-          </el-check-tag>
+
+        <div class="toolbar__actions">
+          <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
+          <el-button type="danger" @click="batchRemove" :disabled="!selected.length || isArchivedVersion">批量删除</el-button>
+          <el-dropdown trigger="click">
+            <el-button>
+              更多
+              <el-icon class="el-icon--right"><MoreFilled /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item :disabled="!state.versionId" @click="downloadTemplate">下载模板</el-dropdown-item>
+                <el-dropdown-item :disabled="!state.versionId" @click="downloadData">导出</el-dropdown-item>
+                <el-dropdown-item :disabled="!state.versionId" @click="openVersionPreview">一键预览</el-dropdown-item>
+                <el-dropdown-item divided :disabled="isArchivedVersion || !state.versionId" @click="triggerImport">导入</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
-        <el-button type="primary" @click="openModal()" :disabled="isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
-        <el-button type="danger" @click="batchRemove" :disabled="!selected.length || isArchivedVersion">批量删除</el-button>
-        <el-button @click="downloadTemplate" :disabled="!state.versionId">下载模板</el-button>
-        <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
-        <el-button type="success" plain @click="openVersionPreview" :disabled="!state.versionId">一键预览</el-button>
+
         <input type="file" ref="importInput" style="display:none;" accept=".csv,text/csv" @change="handleImport" />
-        <el-button @click="triggerImport" :disabled="isArchivedVersion || !state.versionId">导入</el-button>
-        <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
       </div>
       <div v-if="meta" class="meta">
         <el-tag>版本ID: {{ meta.id }}</el-tag>
@@ -337,7 +353,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue';
+import { ArrowLeft, ArrowRight, MoreFilled } from '@element-plus/icons-vue';
 import { api } from '../api';
 
 const props = defineProps({ versions: { type: Array, default: () => [] }, types: { type: Array, default: () => [] } });
@@ -1010,7 +1026,13 @@ loadRefs();
 </script>
 
 <style scoped>
-.toolbar { display:flex; align-items:center; gap:8px; flex-wrap: wrap; }
+.toolbar { display:flex; align-items:flex-start; gap:10px; flex-wrap: wrap; }
+.toolbar__filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex: 1 1 520px; min-width: 360px; }
+.toolbar__actions { display:flex; align-items:center; gap:8px; flex: 0 0 auto; }
+@media (max-width: 900px) {
+  .toolbar__filters { min-width: 100%; }
+  .toolbar__actions { width: 100%; }
+}
 .meta { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
 .tag-group { display:flex; align-items:center; gap:6px; }
 .tag-label { color:#6b7280; font-size:12px; }
