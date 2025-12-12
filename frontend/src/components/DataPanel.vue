@@ -26,6 +26,7 @@
         <el-button @click="downloadData" :disabled="!state.versionId">导出</el-button>
         <input type="file" ref="importInput" style="display:none;" accept=".csv,text/csv" @change="handleImport" />
         <el-button @click="triggerImport" :disabled="isArchivedVersion || !state.versionId">导入</el-button>
+        <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
       </div>
       <div v-if="meta" class="meta">
         <el-tag>版本ID: {{ meta.id }}</el-tag>
@@ -36,15 +37,20 @@
         <el-tag>生效: {{ meta.effective_from || '—' }} ~ {{ meta.effective_to || '—' }}</el-tag>
       </div>
     </template>
-    <el-table :data="rows" border @selection-change="onSelectionChange">
+    <el-table :data="displayedRows" border @selection-change="onSelectionChange">
       <el-table-column type="selection" width="50" />
       <el-table-column prop="id" label="数据ID" width="90" />
       <el-table-column prop="key_value" label="Key" width="200" />
-      <el-table-column prop="status" label="状态" width="100" />
-      <el-table-column prop="create_user" label="创建人" width="120" />
-      <el-table-column prop="create_time" label="创建时间" width="180" />
-      <el-table-column prop="update_user" label="更新人" width="120" />
-      <el-table-column prop="update_time" label="更新时间" width="180" />
+      <el-table-column prop="status" label="启用" width="100">
+        <template #default="scope">
+          <el-switch
+            :model-value="scope.row.status"
+            active-value="ENABLED"
+            inactive-value="DISABLED"
+            disabled
+          />
+        </template>
+      </el-table-column>
       <el-table-column
         v-for="f in fields"
         :key="f.field_code"
@@ -55,13 +61,9 @@
           <el-tag type="info">{{ formatValue(scope.row.parsed?.[f.field_code]) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="内容" min-width="160">
+      <el-table-column label="操作" width="200">
         <template #default="scope">
-          <el-tag type="info">{{ short(JSON.stringify(scope.row.parsed || {})) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="160">
-        <template #default="scope">
+          <el-button link type="info" @click="openPreview(scope.row)">预览</el-button>
           <el-button link type="primary" @click="openModal(scope.row)">编辑</el-button>
           <el-button link type="danger" @click="remove(scope.row)">删除</el-button>
         </template>
@@ -71,11 +73,9 @@
 
   <el-dialog v-model="modal.visible" title="配置项" width="580px">
     <el-form :model="modal.form" label-width="130px">
-      <el-form-item label="Key"><el-input v-model="modal.form.keyValue" /></el-form-item>
-      <el-form-item label="状态">
-        <el-select v-model="modal.form.status">
-          <el-option label="ENABLED" value="ENABLED" /><el-option label="DISABLED" value="DISABLED" />
-        </el-select>
+      <el-form-item label="Key"><el-input v-model="modal.form.keyValue" :disabled="!!modal.editId" /></el-form-item>
+      <el-form-item label="启用">
+        <el-switch v-model="modal.form.status" active-value="ENABLED" inactive-value="DISABLED" />
       </el-form-item>
       <template v-for="f in fields" :key="f.field_code">
         <el-form-item :label="f.field_name">
@@ -92,6 +92,26 @@
       <el-button type="primary" @click="save">保存</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog v-model="preview.visible" title="数据预览" width="620px">
+    <div class="preview">
+      <div class="preview-header">
+        <div class="preview-key">{{ preview.row?.key_value || '—' }}</div>
+        <el-tag :type="preview.row?.status === 'ENABLED' ? 'success' : 'info'">
+          {{ preview.row?.status === 'ENABLED' ? '启用' : '停用' }}
+        </el-tag>
+      </div>
+      <el-descriptions :column="1" border v-if="preview.row">
+        <el-descriptions-item label="数据ID">{{ preview.row.id }}</el-descriptions-item>
+        <el-descriptions-item v-for="f in fields" :key="f.field_code" :label="f.field_name">
+          {{ formatValue(preview.row.parsed?.[f.field_code]) }}
+        </el-descriptions-item>
+      </el-descriptions>
+    </div>
+    <template #footer>
+      <el-button @click="preview.visible=false">关闭</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
@@ -106,11 +126,14 @@ const meta = ref(null);
 const apps = ref([]);
 const envs = ref([]);
 const state = reactive({ appId: null, envId: null, typeId: null, versionId: null });
+const showEnabledOnly = ref(true);
+const displayedRows = computed(() =>
+  showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value
+);
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '', status: 'ENABLED', data: {} } });
+const preview = reactive({ visible: false, row: null });
 const importInput = ref(null);
 const selected = ref([]);
-
-const short = (text) => (text.length > 60 ? text.slice(0, 60) + '...' : text);
 
 const envOptions = computed(() => envs.value.filter((e) => !state.appId || e.app_id === state.appId));
 const typeOptions = computed(() =>
@@ -159,6 +182,11 @@ function onEnvSelect(id) {
 function onTypeSelect(id) {
   state.typeId = id;
   load();
+}
+
+function openPreview(row) {
+  preview.row = row;
+  preview.visible = true;
 }
 
 function openModal(row) {
@@ -210,7 +238,12 @@ function parseEnum(text) {
 
 async function save() {
   if (!state.versionId || !state.typeId) return;
-  await api.upsertData(state.versionId, { typeId: state.typeId, keyValue: modal.form.keyValue, status: modal.form.status, dataJson: modal.form.data });
+  const keyValue = (modal.form.keyValue || '').trim();
+  if (!keyValue) return ElMessage.error('Key不能为空');
+  const duplicate = rows.value.some((r) => r.key_value === keyValue && r.id !== modal.editId);
+  if (duplicate) return ElMessage.error('当前版本已存在相同Key');
+  modal.form.keyValue = keyValue;
+  await api.upsertData(state.versionId, { typeId: state.typeId, keyValue, status: modal.form.status, dataJson: modal.form.data });
   modal.visible = false;
   await load();
 }
@@ -309,21 +342,36 @@ async function handleImport(e) {
   e.target.value = '';
   if (!file) return;
   const text = await file.text();
-  const rows = csvToRows(text).map((r) => ({
+  const importedRows = csvToRows(text).map((r) => ({
     ...r,
-    key_value: r.key_value || r.key,
+    key_value: (r.key_value || r.key || '').trim(),
     status: r.status || 'ENABLED'
   })).filter((r) => r.key_value);
-  if (!rows.length) return ElMessage.warning('导入文件无有效数据');
+  if (!importedRows.length) return ElMessage.warning('导入文件无有效数据');
   // ensure only current-field columns sent
   const fieldCodes = new Set(fields.value.map((f) => f.field_code));
-  const trimmed = rows.map((r) => {
+  const trimmed = importedRows.map((r) => {
     const data = {};
     fieldCodes.forEach((fc) => { if (r[fc] !== undefined) data[fc] = r[fc]; });
     return { key_value: r.key_value, status: r.status, ...data };
   });
+  const existingKeys = new Set(rows.value.map((r) => r.key_value));
+  const seenInFile = new Set();
+  const duplicateKeys = new Set();
+  trimmed.forEach((r) => {
+    const key = r.key_value;
+    if (seenInFile.has(key)) duplicateKeys.add(key);
+    seenInFile.add(key);
+  });
+  const conflicts = [...seenInFile].filter((k) => existingKeys.has(k));
+  if (duplicateKeys.size || conflicts.length) {
+    const messages = [];
+    if (duplicateKeys.size) messages.push(`文件内存在重复Key: ${[...duplicateKeys].join(', ')}`);
+    if (conflicts.length) messages.push(`与当前版本已存在的Key冲突: ${conflicts.join(', ')}`);
+    return ElMessage.error(messages.join('；'));
+  }
   await api.importData(state.versionId, trimmed, state.typeId);
-  ElMessage.success(`已导入 ${trimmed.length} 条`);
+  ElMessage.success(`已导入${trimmed.length}条`);
   await load();
 }
 
@@ -389,4 +437,7 @@ loadRefs();
 .meta { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
 .tag-group { display:flex; align-items:center; gap:6px; }
 .tag-label { color:#6b7280; font-size:12px; }
+.preview { display:flex; flex-direction:column; gap:12px; }
+.preview-header { display:flex; align-items:center; gap:10px; }
+.preview-key { font-size:18px; font-weight:600; color:#111827; }
 </style>
