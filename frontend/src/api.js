@@ -80,6 +80,15 @@ export const api = {
     const filename = m?.[1] || `config_${appId}_${versionId}_${envId}.html`;
     return { blob, filename };
   },
+  previewAllHtml: async (appId, versionId, envId) => {
+    const res = await fetch(`${apiBase}/export/html?${new URLSearchParams({ appId, versionId, envId })}`, { headers: buildHeaders({ 'Content-Type': null }) });
+    if (!res.ok) throw new Error(await res.text());
+    const cd = res.headers.get('content-disposition') || '';
+    const m = /filename=\"?([^\";]+)\"?/i.exec(cd);
+    const filename = m?.[1] || `config_${appId}_${versionId}_${envId}.html`;
+    const html = await res.text();
+    return { html, filename };
+  },
   importData: (versionId, rows, typeId, envId) => request(`/versions/${versionId}/data/import`, { method: 'POST', body: JSON.stringify({ rows, typeId, envId }) }),
   deleteData: (id) => request(`/data/${id}`, { method: 'DELETE' }),
   deleteDataByKey: (versionId, typeId, keyValue) => request(`/versions/${versionId}/data/by-key?${new URLSearchParams({ typeId, keyValue })}`, { method: 'DELETE' }),

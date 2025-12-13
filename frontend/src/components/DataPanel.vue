@@ -37,7 +37,7 @@
                 <el-dropdown-item :disabled="!state.versionId" @click="downloadTemplate">下载模板</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.versionId" @click="downloadData">导出</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="downloadAllHtml">导出HTML</el-dropdown-item>
-                <el-dropdown-item :disabled="!state.versionId" @click="openVersionPreview">一键预览</el-dropdown-item>
+                <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="openHtmlPreview">一键预览</el-dropdown-item>
                 <el-dropdown-item divided :disabled="!capabilities.canWrite || isArchivedVersion || !state.versionId" @click="triggerImport">导入</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -289,6 +289,29 @@
     </template>
   </el-dialog>
 
+  <el-dialog v-model="htmlPreview.visible" title="HTML预览" width="92vw" top="4vh">
+    <div class="html-preview">
+      <div class="html-preview__toolbar">
+        <div class="html-preview__meta">
+          <el-tag v-if="state.appId" type="info">应用ID: {{ state.appId }}</el-tag>
+          <el-tag v-if="state.versionId" type="info">版本ID: {{ state.versionId }}</el-tag>
+          <el-tag v-if="state.envId" type="info">环境ID: {{ state.envId }}</el-tag>
+        </div>
+        <div class="html-preview__actions">
+          <el-button @click="openHtmlPreview" :loading="htmlPreview.loading" :disabled="!state.appId || !state.versionId || !state.envId">刷新</el-button>
+          <el-button @click="downloadAllHtml" :disabled="!state.appId || !state.versionId || !state.envId">导出HTML</el-button>
+          <el-button @click="openHtmlPreviewNewWindow" :disabled="!htmlPreview.html">新窗口打开</el-button>
+        </div>
+      </div>
+      <el-skeleton v-if="htmlPreview.loading" :rows="8" animated />
+      <el-empty v-else-if="!htmlPreview.html" description="暂无预览内容" />
+      <iframe v-else class="html-preview__frame" :srcdoc="htmlPreview.html" />
+    </div>
+    <template #footer>
+      <el-button @click="htmlPreview.visible=false">关闭</el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog v-model="versionPreview.visible" title="版本配置预览" width="80vw">
     <div class="version-preview">
       <div class="version-preview__toolbar">
@@ -487,6 +510,7 @@ const versionPreview = reactive({
   filter: '',
   rows: []
 });
+const htmlPreview = reactive({ visible: false, loading: false, html: '', filename: '' });
 const importInput = ref(null);
 const selectedIds = ref([]);
 const inlineDrafts = reactive({});
@@ -1246,6 +1270,31 @@ async function downloadAllHtml() {
   URL.revokeObjectURL(url);
 }
 
+async function openHtmlPreview() {
+  if (!state.appId || !state.versionId || !state.envId) return toastWarning('请先选择应用/版本/环境');
+  htmlPreview.visible = true;
+  htmlPreview.loading = true;
+  htmlPreview.html = '';
+  htmlPreview.filename = '';
+  try {
+    const res = await api.previewAllHtml(state.appId, state.versionId, state.envId);
+    htmlPreview.html = res.html || '';
+    htmlPreview.filename = res.filename || '';
+  } catch (e) {
+    toastError(e, '预览失败');
+  } finally {
+    htmlPreview.loading = false;
+  }
+}
+
+function openHtmlPreviewNewWindow() {
+  if (!htmlPreview.html) return;
+  const blob = new Blob([htmlPreview.html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener,noreferrer');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 function triggerImport() {
   if (!state.versionId || isArchivedVersion.value) return;
   importInput.value && importInput.value.click();
@@ -1362,6 +1411,11 @@ loadRefs();
 .data-card__key { font-weight:600; color:#111827; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:520px; }
 .data-card__actions { display:flex; align-items:center; gap:8px; flex: 0 0 auto; }
 .data-card__form { padding-top:4px; }
+.html-preview { display:flex; flex-direction:column; gap:10px; }
+.html-preview__toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.html-preview__meta { display:flex; gap:6px; flex-wrap:wrap; }
+.html-preview__actions { display:flex; gap:8px; flex-wrap:wrap; }
+.html-preview__frame { width: 100%; height: 78vh; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
 .meta { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }
