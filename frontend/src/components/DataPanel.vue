@@ -242,7 +242,14 @@
       </div>
     </div>
     <template #footer>
-      <el-button type="danger" v-if="modal.editId" @click="deleteAcrossEnvs">停用</el-button>
+      <el-switch
+        v-if="modal.editId"
+        :model-value="allEnabledAcrossEnvs"
+        active-text="启用"
+        inactive-text="未启用"
+        :disabled="!canToggleAcrossEnvs"
+        @change="(v) => toggleAcrossEnvsStatus(v)"
+      />
       <el-button @click="modal.visible=false">取消</el-button>
       <el-button type="primary" @click="save">保存</el-button>
     </template>
@@ -526,6 +533,14 @@ const inlineDrafts = reactive({});
 const newDrafts = ref([]);
 const envCarousel = reactive({ start: 0, pageSize: 3 });
 const previewCarousel = reactive({ start: 0, pageSize: 3 });
+
+const editableEnvForms = computed(() => (modal.envForms || []).filter((ef) => ef && ef.versionId && !ef.disabled));
+const allEnabledAcrossEnvs = computed(() => {
+  const list = editableEnvForms.value;
+  if (!list.length) return false;
+  return list.every((ef) => ef.status === 'ENABLED');
+});
+const canToggleAcrossEnvs = computed(() => capabilities.value.canWrite && !isArchivedVersion.value && editableEnvForms.value.length > 0);
 
 const envOptions = computed(() => envs.value.filter((e) => !state.appId || e.app_id === state.appId));
 const groupOptions = computed(() => {
@@ -1090,6 +1105,13 @@ async function overwriteCurrentFromEnv(sourceEnvId) {
   }
 }
 
+function toggleAcrossEnvsStatus(enabled) {
+  if (!canToggleAcrossEnvs.value) return;
+  editableEnvForms.value.forEach((ef) => {
+    ef.status = enabled ? 'ENABLED' : 'DISABLED';
+  });
+}
+
 async function remove(row) {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   await confirmAction('确认将该记录设为未启用？', '提示');
@@ -1406,7 +1428,8 @@ function ensureDefaults() {
     state.typeId = typeOptions.value[0].id;
   }
   if (!versionOptions.value.find((v) => v.id === state.versionId)) {
-    state.versionId = versionOptions.value[0]?.id || null;
+    const released = versionOptions.value.find((v) => v.status === 'RELEASED') || null;
+    state.versionId = released?.id || versionOptions.value[0]?.id || null;
   }
 }
 
