@@ -69,25 +69,6 @@ export const api = {
   listData: (versionId, typeId, envId) => request(`/versions/${versionId}/data?${new URLSearchParams({ typeId, envId })}`),
   listVersionDataAll: (versionId) => request(`/versions/${versionId}/data/all`),
   upsertData: (versionId, payload) => request(`/versions/${versionId}/data`, { method: 'POST', body: JSON.stringify(payload) }),
-  exportData: async (versionId, typeId, envId) => {
-    const res = await fetch(`${apiBase}/versions/${versionId}/data/export?${new URLSearchParams({ typeId, envId })}`, { headers: buildHeaders({ 'Content-Type': null }) });
-    if (!res.ok) throw new Error(await res.text());
-    return res.text();
-  },
-  exportTemplate: async (versionId, typeId) => {
-    const res = await fetch(`${apiBase}/versions/${versionId}/data/template?${new URLSearchParams({ typeId })}`, { headers: buildHeaders({ 'Content-Type': null }) });
-    if (!res.ok) throw new Error(await res.text());
-    return res.text();
-  },
-  exportAllHtml: async (appId, versionId, envId) => {
-    const res = await fetch(`${apiBase}/export/html?${new URLSearchParams({ appId, versionId, envId, enabledOnly: '1' })}`, { headers: buildHeaders({ 'Content-Type': null }) });
-    if (!res.ok) throw new Error(await res.text());
-    const blob = await res.blob();
-    const cd = res.headers.get('content-disposition') || '';
-    const m = /filename=\"?([^\";]+)\"?/i.exec(cd);
-    const filename = m?.[1] || `config_${appId}_${versionId}_${envId}.html`;
-    return { blob, filename };
-  },
   previewAllHtml: async (appId, versionId, envId) => {
     const res = await fetch(`${apiBase}/export/html?${new URLSearchParams({ appId, versionId, envId, enabledOnly: '1' })}`, { headers: buildHeaders({ 'Content-Type': null }) });
     if (!res.ok) throw new Error(await res.text());
@@ -97,7 +78,6 @@ export const api = {
     const html = await res.text();
     return { html, filename };
   },
-  importData: (versionId, rows, typeId, envId) => request(`/versions/${versionId}/data/import`, { method: 'POST', body: JSON.stringify({ rows, typeId, envId }) }),
   deleteData: (id) => request(`/data/${id}`, { method: 'DELETE' }),
   deleteDataByKey: (versionId, typeId, keyValue) => request(`/versions/${versionId}/data/by-key?${new URLSearchParams({ typeId, keyValue })}`, { method: 'DELETE' }),
   purgeDataByKey: (versionId, typeId, keyValue) => request(`/versions/${versionId}/data/by-key/hard?${new URLSearchParams({ typeId, keyValue })}`, { method: 'DELETE' }),

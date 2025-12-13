@@ -32,6 +32,14 @@
             </div>
             <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
           </div>
+          <div class="filters__row">
+            <el-input
+              v-model="keyword"
+              clearable
+              placeholder="关键词搜索（Key/字段值）"
+              class="cc-control--xxl"
+            />
+          </div>
         </div>
 
         <div class="toolbar__actions">
@@ -48,17 +56,11 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item :disabled="!state.versionId" @click="downloadTemplate">下载模板</el-dropdown-item>
-                <el-dropdown-item :disabled="!state.versionId" @click="downloadData">导出</el-dropdown-item>
-                <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="downloadAllHtml">导出HTML</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="openHtmlPreview">一键预览</el-dropdown-item>
-                <el-dropdown-item divided :disabled="!capabilities.canWrite || isArchivedVersion || !state.versionId" @click="triggerImport">导入</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
         </div>
-
-        <input type="file" ref="importInput" class="cc-hidden" accept=".csv,text/csv" @change="handleImport" />
       </div>
       <div v-if="meta" class="meta">
         <el-tag>版本号: {{ meta.version_no }}</el-tag>
@@ -68,10 +70,10 @@
     <el-empty v-if="!state.versionId" description="请选择版本以查看配置数据。" />
     <el-empty v-else-if="!state.envId || !state.typeId" description="请选择环境与配置类型。" />
     <div v-else>
-      <el-empty v-if="!displayedRows.length && !newDrafts.length" description="暂无配置数据，可新增或导入。" />
+      <el-empty v-if="!displayedRows.length && !newDrafts.length" :description="emptyDescription" />
       <div v-if="!displayedRows.length && !newDrafts.length" class="cc-empty-actions">
         <el-button type="primary" @click="addInlineDraft()" :disabled="!capabilities.canWrite || isArchivedVersion">新增配置</el-button>
-        <el-button @click="triggerImport" :disabled="!capabilities.canWrite || isArchivedVersion">导入</el-button>
+        <el-button v-if="keyword" @click="keyword=''" :disabled="!keyword">清除搜索</el-button>
       </div>
       <div v-else class="data-form-list">
         <el-card v-for="d in newDrafts" :key="d.tempId" shadow="hover" class="data-card">
@@ -332,7 +334,6 @@
         <div class="html-preview__meta" />
         <div class="html-preview__actions">
           <el-button @click="openHtmlPreview" :loading="htmlPreview.loading" :disabled="!state.appId || !state.versionId || !state.envId">刷新</el-button>
-          <el-button @click="downloadAllHtml" :disabled="!state.appId || !state.versionId || !state.envId">导出HTML</el-button>
           <el-button @click="openHtmlPreviewNewWindow" :disabled="!htmlPreview.html">新窗口打开</el-button>
         </div>
       </div>
@@ -527,9 +528,34 @@ const apps = ref([]);
 const envs = ref([]);
 const state = reactive({ appId: null, envId: null, groupId: null, typeId: null, versionId: null });
 const showEnabledOnly = ref(true);
+const keyword = ref('');
 const displayedRows = computed(() =>
-  showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value
+  {
+    const base = showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value;
+    const q = (keyword.value || '').trim().toLowerCase();
+    if (!q) return base;
+    const fieldCodes = (fields.value || []).map((f) => f.field_code);
+    return base.filter((r) => {
+      const key = String(r.key_value || '').toLowerCase();
+      if (key.includes(q)) return true;
+      const parsed = r.parsed || {};
+      if (!fieldCodes.length) {
+        try { return JSON.stringify(parsed).toLowerCase().includes(q); } catch (e) { return false; }
+      }
+      for (const fc of fieldCodes) {
+        const v = parsed?.[fc];
+        const text = typeof v === 'string' ? v : (() => { try { return JSON.stringify(v ?? ''); } catch (e) { return ''; } })();
+        if (String(text).toLowerCase().includes(q)) return true;
+      }
+      return false;
+    });
+  }
 );
+const emptyDescription = computed(() => {
+  const q = (keyword.value || '').trim();
+  if (q) return `未找到匹配结果：${q}`;
+  return '暂无配置数据，可新增。';
+});
 const selected = computed(() => rows.value.filter((r) => selectedIds.value.includes(r.id)));
 const modal = reactive({ visible: false, editId: null, form: { keyValue: '' }, envForms: [] });
 const preview = reactive({ visible: false, row: null, envForms: [] });
@@ -544,7 +570,6 @@ const versionPreview = reactive({
   rows: []
 });
 const htmlPreview = reactive({ visible: false, loading: false, html: '', filename: '' });
-const importInput = ref(null);
 const selectedIds = ref([]);
 const inlineDrafts = reactive({});
 const newDrafts = ref([]);
@@ -608,6 +633,14 @@ const envLabelById = computed(() => new Map(envs.value.map((e) => [e.id, `${e.en
 const typeLabelById = computed(() => new Map(props.types.map((t) => [t.id, `${t.type_name}`])));
 const envLabelOf = (envId) => (envId === null || envId === undefined ? '全局（无环境）' : envLabelById.value.get(envId) || `Env ${envId}`);
 const typeLabelOf = (typeId) => (typeId === null || typeId === undefined ? '未知类型' : typeLabelById.value.get(typeId) || `Type ${typeId}`);
+
+watch(
+  () => keyword.value,
+  () => {
+    selectedIds.value = [];
+    expandFirstVisibleRow();
+  }
+);
 
 const versionPreviewCounts = computed(() => {
   const rows = versionPreview.rows || [];
@@ -1321,76 +1354,6 @@ async function buildPreviewEnvForms(row) {
   preview.envForms = envForms;
 }
 
-function csvToRows(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length);
-  if (!lines.length) return [];
-  const headers = parseCsvLine(lines[0]);
-  return lines.slice(1).map((line) => {
-    const cols = parseCsvLine(line);
-    const obj = {};
-    headers.forEach((h, idx) => { obj[h] = cols[idx]; });
-    return obj;
-  });
-}
-
-function parseCsvLine(line) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
-      else if (ch === '"') { inQuotes = false; }
-      else { current += ch; }
-    } else {
-      if (ch === '"') inQuotes = true;
-      else if (ch === ',') { result.push(current); current = ''; }
-      else { current += ch; }
-    }
-  }
-  result.push(current);
-  return result;
-}
-
-async function downloadText(filename, text) {
-  const blob = new Blob([text], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-async function downloadTemplate() {
-  if (!state.versionId || !state.typeId) return;
-  const text = await api.exportTemplate(state.versionId, state.typeId);
-  await downloadText(`version_${state.versionId}_template.csv`, text);
-}
-
-async function downloadData() {
-  if (!state.versionId || !state.typeId) return;
-  if (!state.envId) return;
-  const text = await api.exportData(state.versionId, state.typeId, state.envId);
-  await downloadText(`version_${state.versionId}_data.csv`, text);
-}
-
-async function downloadAllHtml() {
-  if (!state.appId || !state.versionId || !state.envId) return;
-  const { blob, filename } = await api.exportAllHtml(state.appId, state.versionId, state.envId);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 async function openHtmlPreview() {
   if (!state.appId || !state.versionId || !state.envId) return toastWarning('请先选择应用/版本/环境');
   htmlPreview.visible = true;
@@ -1414,50 +1377,6 @@ function openHtmlPreviewNewWindow() {
   const url = URL.createObjectURL(blob);
   window.open(url, '_blank', 'noopener,noreferrer');
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
-}
-
-function triggerImport() {
-  if (!state.versionId || isArchivedVersion.value) return;
-  importInput.value && importInput.value.click();
-}
-
-async function handleImport(e) {
-  if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
-  const file = e.target.files?.[0];
-  e.target.value = '';
-  if (!file) return;
-  const text = await file.text();
-  const importedRows = csvToRows(text).map((r) => ({
-    ...r,
-    key_value: (r.key_value || r.key || '').trim(),
-    status: r.status || 'ENABLED'
-  })).filter((r) => r.key_value);
-  if (!importedRows.length) return toastWarning('导入文件无有效数据');
-  // ensure only current-field columns sent
-  const fieldCodes = new Set(fields.value.map((f) => f.field_code));
-  const trimmed = importedRows.map((r) => {
-    const data = {};
-    fieldCodes.forEach((fc) => { if (r[fc] !== undefined) data[fc] = r[fc]; });
-    return { key_value: r.key_value, status: r.status, ...data };
-  });
-  const existingKeys = new Set(rows.value.map((r) => r.key_value));
-  const seenInFile = new Set();
-  const duplicateKeys = new Set();
-  trimmed.forEach((r) => {
-    const key = r.key_value;
-    if (seenInFile.has(key)) duplicateKeys.add(key);
-    seenInFile.add(key);
-  });
-  const conflicts = [...seenInFile].filter((k) => existingKeys.has(k));
-  if (duplicateKeys.size || conflicts.length) {
-    const messages = [];
-    if (duplicateKeys.size) messages.push(`文件内存在重复Key: ${[...duplicateKeys].join(', ')}`);
-    if (conflicts.length) messages.push(`与当前环境已存在的Key冲突: ${conflicts.join(', ')}`);
-    return toastWarning(messages.join('；'));
-  }
-  await api.importData(state.versionId, trimmed, state.typeId, state.envId);
-  toastSuccess(`已导入${trimmed.length}条`);
-  await load();
 }
 
 function ensureDefaults() {

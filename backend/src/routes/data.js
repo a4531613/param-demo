@@ -5,8 +5,6 @@ const { HttpError } = require('../utils/errors');
 const { toInt, getActor } = require('../utils/http');
 const { nowIso } = require('../utils/time');
 const { audit } = require('../audit');
-const { csvEscape } = require('../utils/csv');
-const { safeParseJson } = require('../utils/safeJson');
 
 function createDataRouter({ db }) {
   const router = express.Router();
@@ -117,128 +115,6 @@ function createDataRouter({ db }) {
       });
       audit(db, actor, 'UPSERT_DATA', 'ConfigData', versionId, body);
       res.json({ ok: true });
-    })
-  );
-
-  router.get(
-    '/versions/:versionId/data/template',
-    wrap((req, res) => {
-      const versionId = toInt(req.params.versionId, 'versionId');
-      const typeId = Number(req.query.typeId);
-      const version = db.prepare(`SELECT * FROM config_versions WHERE id = ?`).get(versionId);
-      if (!version) throw new HttpError(404, 'version not found');
-      if (!typeId) throw new HttpError(400, 'typeId required');
-      const fields = db
-        .prepare(`SELECT field_code FROM config_fields WHERE (type_id = ? OR type_id IS NULL) ORDER BY sort_order, id`)
-        .all(typeId);
-      const headers = ['key_value', ...fields.map((f) => f.field_code)];
-      const csv = `${headers.join(',')}\r\n`;
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="template_version_${versionId}.csv"`);
-      res.send(csv);
-    })
-  );
-
-  router.get(
-    '/versions/:versionId/data/export',
-    wrap((req, res) => {
-      const versionId = toInt(req.params.versionId, 'versionId');
-      const typeId = Number(req.query.typeId);
-      const envId = Number(req.query.envId);
-      const version = db.prepare(`SELECT * FROM config_versions WHERE id = ?`).get(versionId);
-      if (!version) throw new HttpError(404, 'version not found');
-      if (!typeId) throw new HttpError(400, 'typeId required');
-      if (!envId) throw new HttpError(400, 'envId required');
-      const fields = db
-        .prepare(`SELECT field_code FROM config_fields WHERE (type_id = ? OR type_id IS NULL) ORDER BY sort_order, id`)
-        .all(typeId);
-      const headers = ['key_value', ...fields.map((f) => f.field_code)];
-      const rows = db
-        .prepare(`SELECT key_value, data_json, status FROM config_data WHERE version_id = ? AND type_id = ? AND env_id = ? ORDER BY id`)
-        .all(versionId, typeId, envId);
-      let csv = `${headers.join(',')}\r\n`;
-      rows.forEach((r) => {
-        const data = safeParseJson(r.data_json, {}) || {};
-        const line = [csvEscape(r.key_value), ...fields.map((f) => csvEscape(data[f.field_code]))].join(',');
-        csv += `${line}\r\n`;
-      });
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="version_${versionId}_data.csv"`);
-      res.send(csv);
-    })
-  );
-
-  router.post(
-    '/versions/:versionId/data/import',
-    wrap((req, res) => {
-      requireRole(req, ['admin', 'appowner']);
-      const versionId = toInt(req.params.versionId, 'versionId');
-      const body = req.body || {};
-      const rows = Array.isArray(body.rows) ? body.rows : [];
-      const typeId = Number(body.typeId);
-      const envId = Number(body.envId);
-      const actor = getActor(req);
-      const nowVal = nowIso();
-
-      const version = db.prepare(`SELECT status, app_id FROM config_versions WHERE id = ?`).get(versionId);
-      if (!version) throw new HttpError(404, 'version not found');
-      if (version.status !== 'RELEASED') throw new HttpError(400, 'only released version editable');
-      if (!typeId) throw new HttpError(400, 'typeId required');
-      if (!envId) throw new HttpError(400, 'envId required');
-      const env = db.prepare(`SELECT * FROM environments WHERE id = ?`).get(envId);
-      if (!env) throw new HttpError(404, 'env not found');
-      const typeRow = db.prepare(`SELECT * FROM config_types WHERE id = ?`).get(typeId);
-      if (!typeRow) throw new HttpError(404, 'type not found');
-      if (typeRow.app_id && version.app_id && typeRow.app_id !== version.app_id) throw new HttpError(400, 'type not belong to app');
-      if (env.app_id && version.app_id && env.app_id !== version.app_id) throw new HttpError(400, 'env not belong to app');
-      if (!rows.length) throw new HttpError(400, 'no rows');
-
-      const fields = db.prepare(`SELECT field_code FROM config_fields WHERE (type_id = ? OR type_id IS NULL)`).all(typeId);
-      const fieldSet = new Set(fields.map((f) => f.field_code));
-      const upsert = db.prepare(`
-        INSERT INTO config_data (type_id, version_id, env_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
-        VALUES (@type_id, @version_id, @env_id, @key_value, @data_json, @status, @actor, @actor, @now, @now)
-        ON CONFLICT(version_id, type_id, env_id, key_value) DO UPDATE SET
-          data_json=excluded.data_json,
-          status=excluded.status,
-          update_user=excluded.update_user,
-          update_time=excluded.update_time
-      `);
-
-      const tx = db.transaction(() => {
-        rows.forEach((r) => {
-          const key = r.key_value || r.key;
-          if (!key) throw new Error('missing key_value');
-          const data = {};
-          fieldSet.forEach((fc) => {
-            if (r[fc] !== undefined) data[fc] = r[fc];
-          });
-          upsert.run({
-            type_id: typeId,
-            version_id: versionId,
-            env_id: envId,
-            key_value: key,
-            data_json: JSON.stringify(data),
-            status: r.status || 'ENABLED',
-            actor,
-            now: nowVal
-          });
-
-          ensureKeyExistsAcrossEnvs({
-            versionId,
-            appId: version.app_id ?? null,
-            typeId,
-            keyValue: key,
-            dataJson: data,
-            status: r.status || 'ENABLED',
-            actor,
-            nowVal
-          });
-        });
-      });
-      tx();
-      audit(db, actor, 'IMPORT_DATA', 'ConfigData', versionId, { count: rows.length });
-      res.json({ imported: rows.length });
     })
   );
 
