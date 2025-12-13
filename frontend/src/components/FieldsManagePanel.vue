@@ -6,8 +6,19 @@
         <el-select v-model="filters.appId" placeholder="应用" class="cc-control--sm">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
         </el-select>
+        <div class="cc-tag-group" v-if="groupOptions.length">
+          <span class="cc-tag-label">大类</span>
+          <el-check-tag
+            v-for="g in groupOptions"
+            :key="g.id"
+            :checked="filters.groupId === g.id"
+            @click="filters.groupId = g.id"
+          >
+            {{ `${g.group_name} (${g.group_code})` }}
+          </el-check-tag>
+        </div>
         <div class="cc-tag-group" v-if="typeOptions.length">
-          <span class="cc-tag-label">配置类型</span>
+          <span class="cc-tag-label">小类</span>
           <el-check-tag
             v-for="t in typeOptions"
             :key="t.id"
@@ -127,7 +138,7 @@ const apps = reactive([]);
 const types = reactive([]);
 const rows = reactive([]);
 const tableRef = ref(null);
-const filters = reactive({ appId: null, typeId: null, keyword: '' });
+const filters = reactive({ appId: null, groupId: null, typeId: null, keyword: '' });
 const modal = reactive({
   visible: false,
   editId: null,
@@ -159,10 +170,21 @@ const derivedDataType = computed(() => {
   return inferDataTypeByFieldType(modal.form.fieldType) || modal.form.dataType;
 });
 
+const groupOptions = computed(() => {
+  const list = types.filter((t) => !filters.appId || t.app_id === filters.appId);
+  const m = new Map();
+  list.forEach((t) => {
+    if (!t.group_id) return;
+    if (!m.has(t.group_id)) m.set(t.group_id, { id: t.group_id, group_name: t.group_name || '未命名', group_code: t.group_code || t.group_id });
+  });
+  return [...m.values()];
+});
+
 const typeOptions = computed(() =>
   types.filter(
     (t) =>
-      (!filters.appId || t.app_id === filters.appId)
+      (!filters.appId || t.app_id === filters.appId) &&
+      (!filters.groupId || t.group_id === filters.groupId)
   )
 );
 const modalTypeOptions = computed(() =>
@@ -184,6 +206,9 @@ const rowsFiltered = computed(() => {
 
 function ensureDefaults() {
   if (!filters.appId && apps.length) filters.appId = apps[0].id;
+  if (groupOptions.value.length && !groupOptions.value.find((g) => g.id === filters.groupId)) {
+    filters.groupId = groupOptions.value[0]?.id || null;
+  }
   if (!typeOptions.value.find((t) => t.id === filters.typeId)) {
     filters.typeId = typeOptions.value[0]?.id || null;
   }
@@ -299,6 +324,15 @@ onMounted(async () => {
 
 watch(
   () => filters.appId,
+  async () => {
+    ensureDefaults();
+    await loadFields();
+    nextTick(applyRowDrag);
+  }
+);
+
+watch(
+  () => filters.groupId,
   async () => {
     ensureDefaults();
     await loadFields();

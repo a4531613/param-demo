@@ -21,7 +21,7 @@
     <el-tabs v-model="activeTab">
       <el-tab-pane name="groups" label="大类">
         <el-empty v-if="!groupFiltered.length" description="暂无大类，请先创建大类。" />
-        <el-table v-else :data="groupFiltered" border class="cc-table-full">
+        <el-table v-else :data="groupFiltered" border class="cc-table-full" :row-key="(row) => row.id">
           <el-table-column prop="id" label="ID" width="80" />
           <el-table-column prop="group_code" label="GroupCode" width="140" />
           <el-table-column prop="group_name" label="大类名称" />
@@ -41,7 +41,7 @@
 
       <el-tab-pane name="types" label="小类">
         <el-empty v-if="!typeFiltered.length" description="暂无小类，请先创建小类。" />
-        <el-table v-else :data="typeFiltered" border class="cc-table-full">
+        <el-table v-else :data="typeFiltered" border class="cc-table-full" :row-key="(row) => row.id">
           <el-table-column prop="id" label="ID" width="80" />
           <el-table-column prop="type_code" label="TypeCode" width="140" />
           <el-table-column prop="type_name" label="小类名称" />
@@ -132,15 +132,24 @@ const typeModal = reactive({
   form: { typeCode: '', typeName: '', appId: null, groupId: null, enabled: true, description: '' }
 });
 
-const groupOptions = computed(() => groups.filter((g) => !filters.appId || g.app_id === filters.appId));
+const groupsUnique = computed(() => {
+  const m = new Map();
+  groups.forEach((g) => {
+    const key = g?.id ?? `${g?.app_id ?? 'null'}|${g?.group_code ?? ''}`;
+    if (!m.has(key)) m.set(key, g);
+  });
+  return [...m.values()];
+});
+
+const groupOptions = computed(() => groupsUnique.value.filter((g) => !filters.appId || g.app_id === filters.appId));
 const groupOptionsForModal = computed(() => {
   const appId = typeModal.form.appId || filters.appId;
-  return groups.filter((g) => !appId || g.app_id === appId);
+  return groupsUnique.value.filter((g) => !appId || g.app_id === appId);
 });
 
 const groupFiltered = computed(() => {
   const kw = filters.keyword.toLowerCase();
-  return groups.filter((g) => {
+  return groupsUnique.value.filter((g) => {
     const okKw = !kw || String(g.group_code || '').toLowerCase().includes(kw) || String(g.group_name || '').toLowerCase().includes(kw);
     const okApp = !filters.appId || g.app_id === filters.appId;
     return okKw && okApp;
@@ -318,4 +327,3 @@ watch(
 
 loadApps().then(loadGroups);
 </script>
-

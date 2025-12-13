@@ -28,7 +28,8 @@ function createTypeGroupsRouter({ db }) {
   router.get(
     '/type-groups',
     wrap((req, res) => {
-      const { appId } = req.query;
+      const appIdRaw = req.query.appId;
+      const appId = appIdRaw === undefined || appIdRaw === null || appIdRaw === '' ? null : toInt(appIdRaw, 'appId');
       let sql = `
         SELECT g.*, a.app_name
         FROM config_type_groups g
@@ -36,7 +37,7 @@ function createTypeGroupsRouter({ db }) {
         WHERE 1=1
       `;
       const params = [];
-      if (appId !== undefined && appId !== null && appId !== '') {
+      if (appId !== null) {
         sql += ` AND g.app_id = ?`;
         params.push(appId);
       }
@@ -138,4 +139,3 @@ function createTypeGroupsRouter({ db }) {
 }
 
 module.exports = { createTypeGroupsRouter };
-

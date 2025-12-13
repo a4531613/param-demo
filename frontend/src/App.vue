@@ -102,8 +102,21 @@ const pageMetaMap = {
 };
 const pageMeta = computed(() => pageMetaMap[active.value] || pageMetaMap.overview);
 
+function toNumOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 async function loadTypes() {
-  types.value = await api.listTypes();
+  const list = await api.listTypes();
+  types.value = (list || []).map((t) => ({
+    ...t,
+    id: toNumOrNull(t.id),
+    app_id: toNumOrNull(t.app_id),
+    env_id: toNumOrNull(t.env_id),
+    group_id: toNumOrNull(t.group_id)
+  }));
 }
 async function loadVersions(typeId) {
   const tId = typeId || currentTypeId.value || null;

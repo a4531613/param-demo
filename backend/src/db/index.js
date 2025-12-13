@@ -6,7 +6,8 @@ const {
   ensureConfigFieldsFieldType,
   ensureConfigTypeGroups,
   ensureConfigTypesGroupId,
-  seedDefaultTypeGroups
+  seedDefaultTypeGroups,
+  cleanupDuplicateTypeGroups
 } = require('./schema');
 
 let db;
@@ -21,6 +22,7 @@ function getDb() {
   ensureConfigTypeGroups(db);
   ensureConfigTypesGroupId(db);
   seedDefaultTypeGroups(db);
+  cleanupDuplicateTypeGroups(db);
   return db;
 }
 

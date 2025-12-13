@@ -64,7 +64,11 @@ function ensureConfigTypesGroupId(db) {
 
 function seedDefaultTypeGroups(db) {
   // Create a default group per app_id and attach existing types that have no group_id.
-  const apps = db.prepare(`SELECT DISTINCT app_id FROM config_types`).all().map((r) => r.app_id ?? null);
+  const apps = db
+    .prepare(`SELECT DISTINCT app_id FROM config_types`)
+    .all()
+    .map((r) => r.app_id ?? null)
+    .filter((id) => id !== null && id !== undefined);
   const insert = db.prepare(`
     INSERT OR IGNORE INTO config_type_groups (group_code, group_name, app_id, description, enabled, sort_order)
     VALUES (@group_code, @group_name, @app_id, @description, 1, 0)
@@ -78,6 +82,39 @@ function seedDefaultTypeGroups(db) {
       insert.run({ group_code: groupCode, group_name: '默认大类', app_id: appId, description: '自动生成的默认大类' });
       const group = find.get({ group_code: groupCode, app_id: appId });
       if (group?.id) updateTypes.run({ group_id: group.id, app_id: appId });
+    });
+  });
+  tx();
+}
+
+function cleanupDuplicateTypeGroups(db) {
+  const dupRows = db
+    .prepare(
+      `
+      SELECT group_code, app_id, MIN(id) AS keep_id, GROUP_CONCAT(id) AS ids, COUNT(*) AS cnt
+      FROM config_type_groups
+      GROUP BY group_code, app_id
+      HAVING cnt > 1
+    `
+    )
+    .all();
+  if (!dupRows.length) return;
+
+  const updateTypes = db.prepare(`UPDATE config_types SET group_id = @keepId WHERE group_id = @oldId`);
+  const deleteGroup = db.prepare(`DELETE FROM config_type_groups WHERE id = ?`);
+
+  const tx = db.transaction(() => {
+    dupRows.forEach((r) => {
+      const keepId = r.keep_id;
+      const ids = String(r.ids || '')
+        .split(',')
+        .map((x) => Number(x))
+        .filter(Boolean)
+        .filter((x) => x !== keepId);
+      ids.forEach((oldId) => {
+        updateTypes.run({ keepId, oldId });
+        deleteGroup.run(oldId);
+      });
     });
   });
   tx();
@@ -244,5 +281,6 @@ module.exports = {
   ensureConfigFieldsFieldType,
   ensureConfigTypeGroups,
   ensureConfigTypesGroupId,
-  seedDefaultTypeGroups
+  seedDefaultTypeGroups,
+  cleanupDuplicateTypeGroups
 };
