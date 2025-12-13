@@ -3,31 +3,35 @@
     <template #header>
       <div class="cc-toolbar">
         <div class="toolbar__filters">
-          <el-select v-model="state.appId" placeholder="应用" class="cc-control--md">
-            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
-          </el-select>
-          <el-select v-model="state.versionId" placeholder="选择版本" class="cc-control--lg" @change="load">
-            <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
-          </el-select>
-          <div class="cc-tag-group" v-if="envOptions.length">
-            <span class="cc-tag-label">环境</span>
-            <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
-              {{ `${e.env_name}` }}
-            </el-check-tag>
+          <div class="filters__row">
+            <el-select v-model="state.appId" placeholder="应用" class="cc-control--md">
+              <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
+            </el-select>
+            <el-select v-model="state.versionId" placeholder="选择版本" class="cc-control--lg" @change="load">
+              <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
+            </el-select>
           </div>
-          <div class="cc-tag-group" v-if="groupOptions.length">
-            <span class="cc-tag-label">大类</span>
-            <el-check-tag v-for="g in groupOptions" :key="g.id" :checked="state.groupId === g.id" @click="onGroupSelect(g.id)">
-              {{ `${g.group_name}` }}
-            </el-check-tag>
+          <div class="filters__row">
+            <div class="cc-tag-group" v-if="envOptions.length">
+              <span class="cc-tag-label">环境</span>
+              <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
+                {{ `${e.env_name}` }}
+              </el-check-tag>
+            </div>
+            <div class="cc-tag-group" v-if="groupOptions.length">
+              <span class="cc-tag-label">大类</span>
+              <el-check-tag v-for="g in groupOptions" :key="g.id" :checked="state.groupId === g.id" @click="onGroupSelect(g.id)">
+                {{ `${g.group_name}` }}
+              </el-check-tag>
+            </div>
+            <div class="cc-tag-group" v-if="typeOptions.length">
+              <span class="cc-tag-label">小类</span>
+              <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
+                {{ `${t.type_name}` }}
+              </el-check-tag>
+            </div>
+            <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
           </div>
-          <div class="cc-tag-group" v-if="typeOptions.length">
-            <span class="cc-tag-label">小类</span>
-            <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
-              {{ `${t.type_name}` }}
-            </el-check-tag>
-          </div>
-          <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
         </div>
 
         <div class="toolbar__actions">
@@ -100,7 +104,12 @@
                         <span class="form-label-ellipsis">{{ f.field_name }}</span>
                       </el-tooltip>
                     </template>
-                    <component :is="componentOf(f)" v-model="d.data[f.field_code]" v-bind="componentProps(f)" :disabled="!capabilities.canWrite || isArchivedVersion">
+                    <component
+                      :is="componentOf(f)"
+                      v-model="d.data[f.field_code]"
+                      v-bind="componentProps(f)"
+                      :disabled="!capabilities.canWrite || isArchivedVersion || d.status !== 'ENABLED'"
+                    >
                       <template v-if="usesSelectOptions(f)">
                         <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
                       </template>
@@ -137,8 +146,12 @@
               <div class="data-card__actions">
                 <el-button size="small" @click="openPreview(row)">预览</el-button>
                 <el-button size="small" @click="openModal(row)" :disabled="!capabilities.canWrite || isArchivedVersion">跨环境</el-button>
-                <el-button size="small" type="primary" @click="saveInlineRow(row)" :disabled="!capabilities.canWrite || isArchivedVersion">保存</el-button>
-                <el-button size="small" type="danger" @click="remove(row)" :disabled="!capabilities.canWrite || isArchivedVersion || htmlPreview.visible">删除</el-button>
+                <el-button
+                  size="small"
+                  type="primary"
+                  @click="saveInlineRow(row)"
+                  :disabled="!capabilities.canWrite || isArchivedVersion || ensureInlineDraft(row).status !== 'ENABLED'"
+                >保存</el-button>
               </div>
             </div>
           </template>
@@ -152,7 +165,12 @@
                         <span class="form-label-ellipsis">{{ f.field_name }}</span>
                       </el-tooltip>
                     </template>
-                    <component :is="componentOf(f)" v-model="ensureInlineDraft(row).data[f.field_code]" v-bind="componentProps(f)" :disabled="!capabilities.canWrite || isArchivedVersion">
+                    <component
+                      :is="componentOf(f)"
+                      v-model="ensureInlineDraft(row).data[f.field_code]"
+                      v-bind="componentProps(f)"
+                      :disabled="!capabilities.canWrite || isArchivedVersion || ensureInlineDraft(row).status !== 'ENABLED'"
+                    >
                       <template v-if="usesSelectOptions(f)">
                         <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
                       </template>
@@ -197,6 +215,9 @@
               <el-tag size="small" :type="ef.versionStatus === 'ARCHIVED' ? 'info' : 'success'">
                 {{ statusLabel(ef.versionStatus) || '未发布' }}
               </el-tag>
+              <el-tag size="small" :type="ef.status === 'ENABLED' ? 'success' : 'info'">
+                {{ ef.status === 'ENABLED' ? '启用' : '未启用' }}
+              </el-tag>
               <el-button
                 v-if="ef.envId !== state.envId"
                 link
@@ -208,9 +229,6 @@
             </div>
           </div>
           <el-form label-width="110px" class="env-card__form">
-            <el-form-item label="启用">
-              <el-switch v-model="ef.status" active-value="ENABLED" inactive-value="DISABLED" :disabled="ef.disabled" />
-            </el-form-item>
             <template v-for="f in fields" :key="f.field_code">
               <el-form-item>
                 <template #label>
@@ -222,7 +240,7 @@
                   :is="componentOf(f)"
                   v-model="ef.data[f.field_code]"
                   v-bind="componentProps(f)"
-                  :disabled="ef.disabled"
+                  :disabled="ef.disabled || ef.status !== 'ENABLED'"
                 >
                   <template v-if="usesSelectOptions(f)">
                     <el-option v-for="opt in parseEnum(f.enum_options)" :key="opt" :label="opt" :value="opt" />
@@ -243,7 +261,6 @@
     </div>
     <template #footer>
       <el-switch
-        v-if="modal.editId"
         :model-value="allEnabledAcrossEnvs"
         active-text="启用"
         inactive-text="未启用"
@@ -1037,7 +1054,17 @@ function componentProps(f) {
   if (f.field_type === 'Textarea') return { type: 'textarea', autosize: { minRows: 2, maxRows: 6 } };
   if (f.field_type === 'Password') return { type: 'password', showPassword: true };
   if (f.field_type === 'Select') return { clearable: true, filterable: true, style: 'width:100%' };
-  if (f.field_type === 'MultiSelect') return { multiple: true, collapseTags: true, collapseTagsTooltip: true, clearable: true, filterable: true, style: 'width:100%' };
+  if (f.field_type === 'MultiSelect') {
+    return {
+      multiple: true,
+      collapseTags: true,
+      collapseTagsTooltip: true,
+      maxCollapseTags: 8,
+      clearable: true,
+      filterable: true,
+      style: 'width:100%'
+    };
+  }
   if (f.data_type === 'date') return { type: 'date', style: 'width:100%' };
   if (f.data_type === 'datetime') return { type: 'datetime', style: 'width:100%' };
   if (f.data_type === 'enum') return { clearable: true };
@@ -1476,7 +1503,8 @@ watch(
   () => versionOptions.value,
   () => {
     if (!versionOptions.value.find((v) => v.id === state.versionId)) {
-      state.versionId = versionOptions.value[0]?.id || null;
+      const released = versionOptions.value.find((v) => v.status === 'RELEASED') || null;
+      state.versionId = released?.id || versionOptions.value[0]?.id || null;
       load();
     }
   }
@@ -1487,7 +1515,8 @@ loadRefs();
 
 <style scoped>
 .cc-toolbar { align-items:flex-start; }
-.toolbar__filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex: 1 1 520px; min-width: 360px; }
+.toolbar__filters { display:flex; flex-direction:column; align-items:flex-start; gap:8px; flex: 1 1 520px; min-width: 360px; }
+.filters__row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; width: 100%; }
 .toolbar__actions { display:flex; align-items:center; gap:8px; flex: 0 0 auto; }
 @media (max-width: 900px) {
   .toolbar__filters { min-width: 100%; }
