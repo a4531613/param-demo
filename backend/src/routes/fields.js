@@ -93,8 +93,8 @@ function createFieldsRouter({ db }) {
       if ((typeRow.app_id ?? null) !== (version.app_id ?? null)) throw new HttpError(400, 'type does not belong to version app');
 
       const stmt = db.prepare(`
-        INSERT INTO config_fields (type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO config_fields (type_id, field_code, field_name, description, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const tx = db.transaction(() => {
         const code = allocateFieldCode(typeId, body.fieldCode);
@@ -102,6 +102,7 @@ function createFieldsRouter({ db }) {
           typeId,
           code,
           body.fieldName,
+          body.description || null,
           body.fieldType || null,
           body.dataType || 'string',
           body.maxLength || null,
@@ -166,8 +167,8 @@ function createFieldsRouter({ db }) {
       if (!isCommon && !typeId) throw new HttpError(400, 'typeId required');
       const stmt = db.prepare(
         `
-        INSERT INTO config_fields (type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, update_user, update_time)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO config_fields (type_id, field_code, field_name, description, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, update_user, update_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       );
       const tx = db.transaction(() => {
@@ -176,6 +177,7 @@ function createFieldsRouter({ db }) {
           typeId,
           code,
           body.fieldName,
+          body.description || null,
           body.fieldType || null,
           body.dataType || 'string',
           body.maxLength || null,
@@ -212,6 +214,7 @@ function createFieldsRouter({ db }) {
           `
           UPDATE config_fields
           SET field_name = COALESCE(@field_name, field_name),
+              description = COALESCE(@description, description),
               field_type = COALESCE(@field_type, field_type),
               data_type = COALESCE(@data_type, data_type),
               max_length = COALESCE(@max_length, max_length),
@@ -230,6 +233,7 @@ function createFieldsRouter({ db }) {
         .run({
           id,
           field_name: body.fieldName ?? null,
+          description: body.description ?? null,
           field_type: body.fieldType ?? null,
           data_type: body.dataType ?? null,
           max_length: body.maxLength ?? null,

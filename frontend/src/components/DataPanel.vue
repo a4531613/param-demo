@@ -100,7 +100,7 @@
                 <template v-for="f in fields" :key="f.field_code">
                   <el-form-item>
                     <template #label>
-                      <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+                      <el-tooltip :content="f.description || f.field_name" placement="top" :show-after="300">
                         <span class="form-label-ellipsis">{{ f.field_name }}</span>
                       </el-tooltip>
                     </template>
@@ -161,7 +161,7 @@
                 <template v-for="f in fields" :key="f.field_code">
                   <el-form-item>
                     <template #label>
-                      <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+                      <el-tooltip :content="f.description || f.field_name" placement="top" :show-after="300">
                         <span class="form-label-ellipsis">{{ f.field_name }}</span>
                       </el-tooltip>
                     </template>
@@ -232,7 +232,7 @@
             <template v-for="f in fields" :key="f.field_code">
               <el-form-item>
                 <template #label>
-                  <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+                  <el-tooltip :content="f.description || f.field_name" placement="top" :show-after="300">
                     <span class="form-label-ellipsis">{{ f.field_name }}</span>
                   </el-tooltip>
                 </template>
@@ -308,7 +308,7 @@
               <template v-for="f in fields" :key="f.field_code">
                 <el-form-item>
                   <template #label>
-                    <el-tooltip :content="f.field_name" placement="top" :show-after="300">
+                    <el-tooltip :content="f.description || f.field_name" placement="top" :show-after="300">
                       <span class="form-label-ellipsis">{{ f.field_name }}</span>
                     </el-tooltip>
                   </template>

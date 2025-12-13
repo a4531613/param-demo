@@ -39,6 +39,13 @@ function ensureConfigFieldsFieldType(db) {
   }
 }
 
+function ensureConfigFieldsDescription(db) {
+  const hasDescription = db.prepare(`PRAGMA table_info(config_fields)`).all().some((c) => c.name === 'description');
+  if (!hasDescription) {
+    db.exec(`ALTER TABLE config_fields ADD COLUMN description TEXT`);
+  }
+}
+
 function ensureConfigFieldsCommon(db) {
   const cols = db.prepare(`PRAGMA table_info(config_fields)`).all();
   const typeCol = cols.find((c) => c.name === 'type_id');
@@ -51,6 +58,7 @@ function ensureConfigFieldsCommon(db) {
           type_id INTEGER,
           field_code TEXT NOT NULL,
           field_name TEXT NOT NULL,
+          description TEXT,
           field_type TEXT,
           data_type TEXT NOT NULL,
           max_length INTEGER,
@@ -67,8 +75,8 @@ function ensureConfigFieldsCommon(db) {
           update_time TEXT DEFAULT (datetime('now')),
           FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE
         );
-        INSERT INTO config_fields (id, type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, create_time, update_user, update_time)
-        SELECT id, type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, create_time, update_user, update_time
+        INSERT INTO config_fields (id, type_id, field_code, field_name, description, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, create_time, update_user, update_time)
+        SELECT id, type_id, field_code, field_name, NULL, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, create_time, update_user, update_time
         FROM config_fields_old;
         DROP TABLE config_fields_old;
       `);
@@ -316,6 +324,7 @@ function initSchema(db) {
     type_id INTEGER,
     field_code TEXT NOT NULL,
     field_name TEXT NOT NULL,
+    description TEXT,
     field_type TEXT,
     data_type TEXT NOT NULL,
     max_length INTEGER,
@@ -367,6 +376,7 @@ module.exports = {
   initSchema,
   ensureConfigDataEnv,
   ensureConfigFieldsFieldType,
+  ensureConfigFieldsDescription,
   ensureConfigFieldsCommon,
   ensureConfigTypeGroups,
   ensureConfigTypesGroupId,
