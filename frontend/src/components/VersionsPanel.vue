@@ -22,8 +22,43 @@
       <el-table-column label="应用" width="200">
         <template #default="s">{{ appLabel(s.row.app_id) }}</template>
       </el-table-column>
-      <el-table-column prop="status" label="状态" width="140">
-        <template #default="s"><el-tag :type="tagType(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template>
+      <el-table-column label="状态" min-width="320">
+        <template #default="scope">
+          <el-steps
+            :active="stepIndex(scope.row.status)"
+            simple
+            finish-status="success"
+            class="cc-version-steps"
+          >
+            <el-step>
+              <template #title>
+                <span
+                  class="cc-step-title"
+                  :class="{ 'is-clickable': canGo(scope.row.status, 'PENDING_RELEASE'), 'is-active': scope.row.status === 'PENDING_RELEASE' }"
+                  @click="onStepClick(scope.row, 'PENDING_RELEASE')"
+                >待发布</span>
+              </template>
+            </el-step>
+            <el-step>
+              <template #title>
+                <span
+                  class="cc-step-title"
+                  :class="{ 'is-clickable': canGo(scope.row.status, 'RELEASED'), 'is-active': scope.row.status === 'RELEASED' }"
+                  @click="onStepClick(scope.row, 'RELEASED')"
+                >已发布</span>
+              </template>
+            </el-step>
+            <el-step>
+              <template #title>
+                <span
+                  class="cc-step-title"
+                  :class="{ 'is-clickable': canGo(scope.row.status, 'ARCHIVED'), 'is-active': scope.row.status === 'ARCHIVED' }"
+                  @click="onStepClick(scope.row, 'ARCHIVED')"
+                >已归档</span>
+              </template>
+            </el-step>
+          </el-steps>
+        </template>
       </el-table-column>
       <el-table-column prop="enabled" label="启用" width="80">
         <template #default="s"><el-tag :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '是' : '否' }}</el-tag></template>
@@ -35,12 +70,9 @@
       <el-table-column prop="create_time" label="创建时间" width="180" />
       <el-table-column prop="update_user" label="更新人" width="120" />
       <el-table-column prop="update_time" label="更新时间" width="180" />
-      <el-table-column label="操作" width="220">
+      <el-table-column label="更多" width="160">
         <template #default="scope">
           <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite">编辑</el-button>
-          <el-button link type="success" @click="setStatus(scope.row, 'RELEASED')" :disabled="!capabilities.canWrite || !canRelease(scope.row)">发布</el-button>
-          <el-button link type="warning" @click="setStatus(scope.row, 'ARCHIVED')" :disabled="!capabilities.canWrite || scope.row.status !== 'RELEASED'">归档</el-button>
-          <el-button link type="info" @click="setStatus(scope.row, 'PENDING_RELEASE')" :disabled="!capabilities.canWrite || scope.row.status !== 'RELEASED'">待发布</el-button>
           <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite || scope.row.status === 'RELEASED'">删除</el-button>
         </template>
       </el-table-column>
@@ -81,10 +113,40 @@ const modal = reactive({ visible: false, editId: null, form: { appId: null, vers
 const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
 const tagType = (s) => (s === 'RELEASED' ? 'success' : s === 'PENDING_RELEASE' ? 'warning' : s === 'ARCHIVED' ? 'info' : '');
 const statusLabel = (s) => statusLabelMap[s] || s;
-const canRelease = (row) => ['PENDING_RELEASE', 'ARCHIVED'].includes(row.status);
 
 const appById = computed(() => new Map(apps.map((a) => [a.id, a.app_name])));
 const appLabel = (appId) => appById.value.get(appId) || '';
+
+function stepIndex(status) {
+  if (status === 'PENDING_RELEASE') return 0;
+  if (status === 'RELEASED') return 1;
+  if (status === 'ARCHIVED') return 2;
+  return 0;
+}
+
+function canGo(current, target) {
+  if (!capabilities.value.canWrite) return false;
+  if (!current || !target) return false;
+  if (current === target) return false;
+  if (current === 'PENDING_RELEASE' && target === 'RELEASED') return true;
+  if (current === 'RELEASED' && (target === 'ARCHIVED' || target === 'PENDING_RELEASE')) return true;
+  if (current === 'ARCHIVED' && target === 'RELEASED') return true;
+  return false;
+}
+
+async function onStepClick(row, targetStatus) {
+  if (!canGo(row.status, targetStatus)) return;
+  const from = statusLabel(row.status);
+  const to = statusLabel(targetStatus);
+  try {
+    await confirmAction(`确认将版本状态从“${from}”调整为“${to}”？`, '提示');
+    await api.updateVersion(row.id, { status: targetStatus });
+    toastSuccess(`状态已更新为 ${to}`);
+    await loadVersions();
+  } catch (e) {
+    toastError(e, '状态更新失败');
+  }
+}
 
 async function loadRefs() {
   try {
@@ -185,3 +247,10 @@ onMounted(async () => {
 watch(() => filters.appId, loadVersions);
 watch(() => filters.status, loadVersions);
 </script>
+
+<style scoped>
+.cc-version-steps :deep(.el-steps--simple) { padding: 0; }
+.cc-step-title { user-select: none; }
+.cc-step-title.is-clickable { cursor: pointer; color: var(--el-color-primary); }
+.cc-step-title.is-active { font-weight: 600; }
+</style>
