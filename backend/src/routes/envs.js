@@ -6,6 +6,22 @@ const { toInt, getActor } = require('../utils/http');
 const { nowIso } = require('../utils/time');
 const { audit } = require('../audit');
 
+function nextEnvCode(db, appId) {
+  const row = db
+    .prepare(
+      `
+      SELECT COALESCE(MAX(code_num), 0) + 1 AS next_code
+      FROM (
+        SELECT CAST(env_code AS INTEGER) AS code_num
+        FROM environments
+        WHERE env_code GLOB '[0-9]*' AND app_id = ?
+      )
+    `
+    )
+    .get(appId);
+  return String(row?.next_code || 1);
+}
+
 function createEnvsRouter({ db }) {
   const router = express.Router();
 
@@ -13,7 +29,7 @@ function createEnvsRouter({ db }) {
     '/envs',
     wrap((req, res) => {
       const { appId } = req.query;
-      let sql = `SELECT e.*, a.app_code FROM environments e JOIN applications a ON e.app_id = a.id WHERE 1=1`;
+      let sql = `SELECT e.*, a.app_name, a.app_code FROM environments e JOIN applications a ON e.app_id = a.id WHERE 1=1`;
       const params = [];
       if (appId) {
         sql += ` AND e.app_id = ?`;
@@ -29,26 +45,33 @@ function createEnvsRouter({ db }) {
     wrap((req, res) => {
       requireRole(req, ['admin', 'appowner']);
       const body = req.body || {};
+      const appId = Number(body.appId);
+      if (!appId) throw new HttpError(400, 'appId required');
+      if (!body.envName) throw new HttpError(400, 'envName required');
       const actor = getActor(req);
-      const info = db
-        .prepare(
-          `
-          INSERT INTO environments (env_code, env_name, app_id, description, enabled, create_user, update_user, update_time)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      const stmt = db.prepare(
         `
-        )
-        .run(
-          body.envCode,
+        INSERT INTO environments (env_code, env_name, app_id, description, enabled, create_user, update_user, update_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      );
+      const tx = db.transaction(() => {
+        const envCode = body.envCode ? String(body.envCode) : nextEnvCode(db, appId);
+        const info = stmt.run(
+          envCode,
           body.envName,
-          body.appId,
+          appId,
           body.description || '',
           body.enabled === false ? 0 : 1,
           actor,
           actor,
           nowIso()
         );
+        return { info, envCode };
+      });
+      const { info, envCode } = tx();
       audit(db, actor, 'CREATE_ENV', 'Environment', info.lastInsertRowid, body);
-      res.status(201).json({ id: info.lastInsertRowid });
+      res.status(201).json({ id: info.lastInsertRowid, envCode });
     })
   );
 
@@ -102,4 +125,3 @@ function createEnvsRouter({ db }) {
 }
 
 module.exports = { createEnvsRouter };
-

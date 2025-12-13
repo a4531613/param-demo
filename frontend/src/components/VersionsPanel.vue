@@ -4,7 +4,7 @@
       <div class="cc-toolbar">
         <div class="cc-toolbar__group">
           <el-select v-model="filters.appId" placeholder="应用" clearable class="cc-control--sm">
-            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
           </el-select>
           <el-select v-model="filters.status" placeholder="状态" clearable class="cc-control--xs">
             <el-option label="待发布" value="PENDING_RELEASE" />
@@ -49,7 +49,7 @@
     <el-form :model="modal.form" label-width="120px">
       <el-form-item label="应用">
         <el-select v-model="modal.form.appId" filterable :disabled="!!modal.editId">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="版本号"><el-input v-model="modal.form.versionNo" /></el-form-item>

@@ -6,6 +6,22 @@ const { toInt, getActor } = require('../utils/http');
 const { nowIso } = require('../utils/time');
 const { audit } = require('../audit');
 
+function nextAppCode(db) {
+  const row = db
+    .prepare(
+      `
+      SELECT COALESCE(MAX(code_num), 0) + 1 AS next_code
+      FROM (
+        SELECT CAST(app_code AS INTEGER) AS code_num
+        FROM applications
+        WHERE app_code GLOB '[0-9]*'
+      )
+    `
+    )
+    .get();
+  return String(row?.next_code || 1);
+}
+
 function createAppsRouter({ db }) {
   const router = express.Router();
 
@@ -23,24 +39,29 @@ function createAppsRouter({ db }) {
       requireRole(req, ['admin', 'appowner']);
       const body = req.body || {};
       const actor = getActor(req);
-      const info = db
-        .prepare(
-          `
-          INSERT INTO applications (app_code, app_name, description, enabled, create_user, update_user, update_time)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+      if (!body.appName) throw new HttpError(400, 'appName required');
+      const stmt = db.prepare(
         `
-        )
-        .run(
-          body.appCode,
-          body.appName || body.appCode,
+        INSERT INTO applications (app_code, app_name, description, enabled, create_user, update_user, update_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+      );
+      const tx = db.transaction(() => {
+        const appCode = body.appCode ? String(body.appCode) : nextAppCode(db);
+        const info = stmt.run(
+          appCode,
+          body.appName,
           body.description || '',
           body.enabled === false ? 0 : 1,
           actor,
           actor,
           nowIso()
         );
+        return { info, appCode };
+      });
+      const { info, appCode } = tx();
       audit(db, actor, 'CREATE_APP', 'Application', info.lastInsertRowid, body);
-      res.status(201).json({ id: info.lastInsertRowid });
+      res.status(201).json({ id: info.lastInsertRowid, appCode });
     })
   );
 
@@ -94,4 +115,3 @@ function createAppsRouter({ db }) {
 }
 
 module.exports = { createAppsRouter };
-

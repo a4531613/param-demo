@@ -3,9 +3,9 @@
     <template #header>
       <div class="cc-toolbar">
         <div class="cc-toolbar__group">
-          <el-input v-model="filters.keyword" placeholder="筛code / 名称过滤" clearable class="cc-control--md" />
+          <el-input v-model="filters.keyword" placeholder="按名称/ID过滤" clearable class="cc-control--md" />
           <el-select v-model="filters.appId" placeholder="应用" class="cc-control--sm">
-            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
           </el-select>
           <el-select v-if="activeTab === 'types'" v-model="filters.groupId" placeholder="大类" class="cc-control--sm" clearable>
             <el-option v-for="g in groupOptions" :key="g.id" :label="`${g.group_name} (${g.group_code})`" :value="g.id" />
@@ -23,9 +23,10 @@
         <el-empty v-if="!groupFiltered.length" description="暂无大类，请先创建大类。" />
         <el-table v-else :data="groupFiltered" border class="cc-table-full" :row-key="(row) => row.id">
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="group_code" label="GroupCode" width="140" />
           <el-table-column prop="group_name" label="大类名称" />
-          <el-table-column prop="app_name" label="应用" />
+          <el-table-column prop="app_name" label="应用" width="220">
+            <template #default="s">{{ `${s.row.app_name || ''} (ID:${s.row.app_id})` }}</template>
+          </el-table-column>
           <el-table-column prop="description" label="描述" />
           <el-table-column prop="enabled" label="启用" width="90">
             <template #default="s"><el-tag :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '是' : '否' }}</el-tag></template>
@@ -43,12 +44,13 @@
         <el-empty v-if="!typeFiltered.length" description="暂无小类，请先创建小类。" />
         <el-table v-else :data="typeFiltered" border class="cc-table-full" :row-key="(row) => row.id">
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="type_code" label="TypeCode" width="140" />
           <el-table-column prop="type_name" label="小类名称" />
-          <el-table-column label="大类" width="180">
+          <el-table-column label="大类" width="220">
             <template #default="s">{{ s.row.group_name ? `${s.row.group_name} (${s.row.group_code})` : '-' }}</template>
           </el-table-column>
-          <el-table-column prop="app_name" label="应用" />
+          <el-table-column prop="app_name" label="应用" width="220">
+            <template #default="s">{{ `${s.row.app_name || ''} (ID:${s.row.app_id})` }}</template>
+          </el-table-column>
           <el-table-column prop="description" label="描述" />
           <el-table-column prop="enabled" label="启用" width="90">
             <template #default="s"><el-tag :type="s.row.enabled ? 'success' : 'info'">{{ s.row.enabled ? '是' : '否' }}</el-tag></template>
@@ -70,7 +72,7 @@
       <el-form-item label="大类名称"><el-input v-model="groupModal.form.groupName" /></el-form-item>
       <el-form-item label="应用">
         <el-select v-model="groupModal.form.appId" placeholder="请选择应用">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="启用"><el-switch v-model="groupModal.form.enabled" /></el-form-item>
@@ -84,11 +86,10 @@
 
   <el-dialog v-model="typeModal.visible" :title="typeModal.editId ? '编辑小类' : '新增小类'" width="520px">
     <el-form :model="typeModal.form" label-width="110px">
-      <el-form-item label="Type Code"><el-input v-model="typeModal.form.typeCode" disabled placeholder="自动生成" /></el-form-item>
       <el-form-item label="小类名称"><el-input v-model="typeModal.form.typeName" /></el-form-item>
       <el-form-item label="应用">
         <el-select v-model="typeModal.form.appId" placeholder="请选择应用">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="大类">
@@ -120,17 +121,8 @@ const apps = reactive([]);
 const groups = reactive([]);
 const filters = reactive({ keyword: '', appId: null, groupId: null });
 
-const groupModal = reactive({
-  visible: false,
-  editId: null,
-  form: { groupCode: '', groupName: '', appId: null, enabled: true, description: '' }
-});
-
-const typeModal = reactive({
-  visible: false,
-  editId: null,
-  form: { typeCode: '', typeName: '', appId: null, groupId: null, enabled: true, description: '' }
-});
+const groupModal = reactive({ visible: false, editId: null, form: { groupCode: '', groupName: '', appId: null, enabled: true, description: '' } });
+const typeModal = reactive({ visible: false, editId: null, form: { typeName: '', appId: null, groupId: null, enabled: true, description: '' } });
 
 const groupsUnique = computed(() => {
   const m = new Map();
@@ -148,18 +140,18 @@ const groupOptionsForModal = computed(() => {
 });
 
 const groupFiltered = computed(() => {
-  const kw = filters.keyword.toLowerCase();
+  const kw = (filters.keyword || '').trim().toLowerCase();
   return groupsUnique.value.filter((g) => {
-    const okKw = !kw || String(g.group_code || '').toLowerCase().includes(kw) || String(g.group_name || '').toLowerCase().includes(kw);
+    const okKw = !kw || String(g.id).includes(kw) || String(g.group_name || '').toLowerCase().includes(kw);
     const okApp = !filters.appId || g.app_id === filters.appId;
     return okKw && okApp;
   });
 });
 
 const typeFiltered = computed(() => {
-  const kw = filters.keyword.toLowerCase();
+  const kw = (filters.keyword || '').trim().toLowerCase();
   return props.types.filter((t) => {
-    const okKw = !kw || String(t.type_code || '').toLowerCase().includes(kw) || String(t.type_name || '').toLowerCase().includes(kw);
+    const okKw = !kw || String(t.id).includes(kw) || String(t.type_name || '').toLowerCase().includes(kw);
     const okApp = !filters.appId || t.app_id === filters.appId;
     const okGroup = !filters.groupId || t.group_id === filters.groupId;
     return okKw && okApp && okGroup;
@@ -196,25 +188,10 @@ async function fillNextGroupCode() {
   }
 }
 
-async function fillNextTypeCode() {
-  try {
-    const res = await api.nextTypeCode();
-    typeModal.form.typeCode = res.next;
-  } catch {
-    typeModal.form.typeCode = '';
-  }
-}
-
 async function openGroupModal(row) {
   if (row) {
     groupModal.editId = row.id;
-    groupModal.form = {
-      groupCode: row.group_code,
-      groupName: row.group_name,
-      appId: row.app_id,
-      enabled: !!row.enabled,
-      description: row.description || ''
-    };
+    groupModal.form = { groupCode: row.group_code, groupName: row.group_name, appId: row.app_id, enabled: !!row.enabled, description: row.description || '' };
   } else {
     groupModal.editId = null;
     groupModal.form = { groupCode: '', groupName: '', appId: filters.appId || apps[0]?.id || null, enabled: true, description: '' };
@@ -227,25 +204,10 @@ async function openGroupModal(row) {
 async function openTypeModal(row) {
   if (row) {
     typeModal.editId = row.id;
-    typeModal.form = {
-      typeCode: row.type_code,
-      typeName: row.type_name,
-      appId: row.app_id,
-      groupId: row.group_id || null,
-      enabled: !!row.enabled,
-      description: row.description || ''
-    };
+    typeModal.form = { typeName: row.type_name, appId: row.app_id, groupId: row.group_id || null, enabled: !!row.enabled, description: row.description || '' };
   } else {
     typeModal.editId = null;
-    typeModal.form = {
-      typeCode: '',
-      typeName: '',
-      appId: filters.appId || apps[0]?.id || null,
-      groupId: filters.groupId || null,
-      enabled: true,
-      description: ''
-    };
-    await fillNextTypeCode();
+    typeModal.form = { typeName: '', appId: filters.appId || apps[0]?.id || null, groupId: filters.groupId || null, enabled: true, description: '' };
   }
   ensureDefaults();
   if (!typeModal.form.groupId) typeModal.form.groupId = groupOptionsForModal.value[0]?.id || null;

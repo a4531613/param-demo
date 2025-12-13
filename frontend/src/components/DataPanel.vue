@@ -4,7 +4,7 @@
       <div class="cc-toolbar">
         <div class="toolbar__filters">
           <el-select v-model="state.appId" placeholder="应用" class="cc-control--md">
-            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
           </el-select>
           <el-select v-model="state.versionId" placeholder="选择版本" class="cc-control--lg" @change="load">
             <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
@@ -12,7 +12,7 @@
           <div class="cc-tag-group" v-if="envOptions.length">
             <span class="cc-tag-label">环境</span>
             <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
-              {{ `${e.env_name} (${e.env_code})` }}
+              {{ `${e.env_name} (ID:${e.id})` }}
             </el-check-tag>
           </div>
           <div class="cc-tag-group" v-if="groupOptions.length">
@@ -24,7 +24,7 @@
           <div class="cc-tag-group" v-if="typeOptions.length">
             <span class="cc-tag-label">小类</span>
             <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
-              {{ `${t.type_name} (${t.type_code})` }}
+              {{ `${t.type_name} (ID:${t.id})` }}
             </el-check-tag>
           </div>
           <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
@@ -569,8 +569,8 @@ const canPreviewSlideNext = computed(
 const safeParse = (text) => {
   try { return JSON.parse(text); } catch (e) { return {}; }
 };
-const envLabelById = computed(() => new Map(envs.value.map((e) => [e.id, `${e.env_name} (${e.env_code})`])));
-const typeLabelById = computed(() => new Map(props.types.map((t) => [t.id, `${t.type_name} (${t.type_code})`])));
+const envLabelById = computed(() => new Map(envs.value.map((e) => [e.id, `${e.env_name} (ID:${e.id})`])));
+const typeLabelById = computed(() => new Map(props.types.map((t) => [t.id, `${t.type_name} (ID:${t.id})`])));
 const envLabelOf = (envId) => (envId === null || envId === undefined ? '全局（无环境）' : envLabelById.value.get(envId) || `Env ${envId}`);
 const typeLabelOf = (typeId) => (typeId === null || typeId === undefined ? '未知类型' : typeLabelById.value.get(typeId) || `Type ${typeId}`);
 

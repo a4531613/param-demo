@@ -4,7 +4,7 @@
       <div class="cc-toolbar">
         <div class="cc-toolbar__group">
         <el-select v-model="filters.appId" placeholder="应用" class="cc-control--sm">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
         </el-select>
         <div class="cc-tag-group" v-if="groupOptions.length">
           <span class="cc-tag-label">大类</span>
@@ -25,7 +25,7 @@
             :checked="filters.typeId === t.id"
             @click="filters.typeId = t.id"
           >
-            {{ `${t.type_name} (${t.type_code})` }}
+            {{ `${t.type_name} (ID:${t.id})` }}
           </el-check-tag>
         </div>
         <el-input v-model="filters.keyword" placeholder="按字段标识/名称过滤" clearable class="cc-control--md" />
@@ -72,11 +72,11 @@
     <el-form :model="modal.form" label-width="130px">
       <el-form-item label="所属应用">
         <el-select v-model="modal.form.appId" :disabled="true">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (${a.app_code})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable :disabled="true">
-        <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
+        <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name} (ID:${t.id})`" :value="t.id" />
       </el-select></el-form-item>
       <el-form-item label="字段名称"><el-input v-model="modal.form.fieldName" /></el-form-item>
       <el-form-item label="字段类型">
