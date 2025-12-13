@@ -138,12 +138,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch, inject } from 'vue';
 import { CaretBottom, CaretRight } from '@element-plus/icons-vue';
 import { api } from '../api';
 import { toastError, toastWarning } from '../ui/feedback';
 
 const props = defineProps({ types: { type: Array, default: () => [] } });
+const workspace = inject('workspace', null);
 
 const apps = ref([]);
 const envs = ref([]);
@@ -248,14 +249,18 @@ function safeParse(text) {
 
 async function loadRefs() {
   apps.value = await api.listApps();
+  if (!state.appId && workspace?.appId && apps.value.find((a) => a.id === workspace.appId)) state.appId = workspace.appId;
   envs.value = await api.listEnvs(state.appId || undefined);
+  if (!state.envId && workspace?.envId && envs.value.find((e) => e.id === workspace.envId)) state.envId = workspace.envId;
   if (!state.appId && apps.value.length) state.appId = apps.value[0].id;
 }
 
 watch(
   () => state.appId,
   async () => {
+    if (workspace) workspace.appId = state.appId;
     envs.value = await api.listEnvs(state.appId || undefined);
+    if (workspace?.envId && envs.value.find((e) => e.id === workspace.envId)) state.envId = workspace.envId;
     rows.value = [];
     summary.value = null;
     total.value = 0;
@@ -267,7 +272,22 @@ watch(
 watch(
   () => state.groupId,
   () => {
+    if (workspace) workspace.groupId = state.groupId;
     if (state.typeId && !typeOptions.value.some((t) => t.id === state.typeId)) state.typeId = null;
+  }
+);
+
+watch(
+  () => state.envId,
+  () => {
+    if (workspace) workspace.envId = state.envId;
+  }
+);
+
+watch(
+  () => state.typeId,
+  () => {
+    if (workspace) workspace.typeId = state.typeId;
   }
 );
 
@@ -341,9 +361,6 @@ async function search() {
 
 function reset() {
   state.q = '';
-  state.envId = null;
-  state.groupId = null;
-  state.typeId = null;
   state.page = 1;
   state.pageSize = 10;
   rows.value = [];

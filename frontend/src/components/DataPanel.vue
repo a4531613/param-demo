@@ -514,13 +514,14 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch, inject } from 'vue';
 import { capabilities } from '../userContext';
 import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 import { ArrowLeft, ArrowRight, CaretBottom, CaretRight, MoreFilled } from '@element-plus/icons-vue';
 import { api } from '../api';
 
 const props = defineProps({ versions: { type: Array, default: () => [] }, types: { type: Array, default: () => [] } });
+const workspace = inject('workspace', null);
 const rows = ref([]);
 const fields = ref([]);
 const meta = ref(null);
@@ -1380,31 +1381,39 @@ function openHtmlPreviewNewWindow() {
 }
 
 function ensureDefaults() {
+  if (!state.appId && workspace?.appId && apps.value.find((a) => a.id === workspace.appId)) state.appId = workspace.appId;
   if (!state.appId && apps.value.length) state.appId = apps.value[0].id;
   if (!envOptions.value.find((e) => e.id === state.envId)) {
-    state.envId = envOptions.value[0]?.id || null;
+    if (workspace?.envId && envOptions.value.find((e) => e.id === workspace.envId)) state.envId = workspace.envId;
+    else state.envId = envOptions.value[0]?.id || null;
   }
   if (groupOptions.value.length && !groupOptions.value.find((g) => g.id === state.groupId)) {
-    state.groupId = groupOptions.value[0]?.id || null;
+    if (workspace?.groupId && groupOptions.value.find((g) => g.id === workspace.groupId)) state.groupId = workspace.groupId;
+    else state.groupId = groupOptions.value[0]?.id || null;
   }
   if (!typeOptions.value.find((t) => t.id === state.typeId) && typeOptions.value.length) {
-    state.typeId = typeOptions.value[0].id;
+    if (workspace?.typeId && typeOptions.value.find((t) => t.id === workspace.typeId)) state.typeId = workspace.typeId;
+    else state.typeId = typeOptions.value[0].id;
   }
   if (!versionOptions.value.find((v) => v.id === state.versionId)) {
     const released = versionOptions.value.find((v) => v.status === 'RELEASED') || null;
-    state.versionId = released?.id || versionOptions.value[0]?.id || null;
+    if (workspace?.versionId && versionOptions.value.find((v) => v.id === workspace.versionId)) state.versionId = workspace.versionId;
+    else state.versionId = released?.id || versionOptions.value[0]?.id || null;
   }
 }
 
 async function loadRefs() {
   apps.value = await api.listApps();
+  if (workspace?.appId && apps.value.find((a) => a.id === workspace.appId)) state.appId = workspace.appId;
   envs.value = await api.listEnvs(state.appId || undefined);
+  if (workspace?.envId && envs.value.find((e) => e.id === workspace.envId)) state.envId = workspace.envId;
   ensureDefaults();
 }
 
 watch(
   () => state.appId,
   async () => {
+    if (workspace) workspace.appId = state.appId;
     envs.value = await api.listEnvs(state.appId || undefined);
     ensureDefaults();
     await load();
@@ -1414,6 +1423,7 @@ watch(
 watch(
   () => state.envId,
   () => {
+    if (workspace) workspace.envId = state.envId;
     ensureDefaults();
     load();
   }
@@ -1422,6 +1432,7 @@ watch(
 watch(
   () => state.groupId,
   () => {
+    if (workspace) workspace.groupId = state.groupId;
     ensureDefaults();
     load();
   }
@@ -1430,7 +1441,16 @@ watch(
 watch(
   () => state.typeId,
   () => {
+    if (workspace) workspace.typeId = state.typeId;
     ensureDefaults();
+    load();
+  }
+);
+
+watch(
+  () => state.versionId,
+  () => {
+    if (workspace) workspace.versionId = state.versionId;
     load();
   }
 );

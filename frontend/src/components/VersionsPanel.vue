@@ -47,6 +47,7 @@
       <el-table-column prop="update_time" label="更新时间" width="180" />
       <el-table-column label="更多" width="160">
         <template #default="scope">
+          <el-button link type="info" @click="setAsCurrent(scope.row)" :disabled="!['RELEASED','ARCHIVED'].includes(scope.row.status)">设为当前</el-button>
           <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite || scope.row.status !== 'PENDING_RELEASE'">编辑</el-button>
           <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite || scope.row.status !== 'PENDING_RELEASE'">删除</el-button>
         </template>
@@ -75,12 +76,13 @@
 </template>
 
 <script setup>
-import { computed, reactive, onMounted, watch } from 'vue';
+import { computed, reactive, onMounted, watch, inject } from 'vue';
 import { api } from '../api';
 import { capabilities } from '../userContext';
 import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 
-const emit = defineEmits(['refreshVersions']);
+const emit = defineEmits(['refreshVersions', 'navigate']);
+const workspace = inject('workspace', null);
 
 const apps = reactive([]);
 const versions = reactive([]);
@@ -93,6 +95,15 @@ const statusLabel = (s) => statusLabelMap[s] || s;
 
 const appById = computed(() => new Map(apps.map((a) => [a.id, a.app_name])));
 const appLabel = (appId) => appById.value.get(appId) || '';
+
+function setAsCurrent(row) {
+  if (!row?.id) return;
+  if (workspace) {
+    workspace.appId = row.app_id ?? null;
+    workspace.versionId = row.id;
+  }
+  emit('navigate', 'workbench');
+}
 
 function stepIndex(status) {
   if (status === 'PENDING_RELEASE') return 0;
@@ -129,6 +140,7 @@ async function onStatusToggle(row, targetStatus) {
 async function loadRefs() {
   try {
     apps.splice(0, apps.length, ...(await api.listApps()));
+    if (!filters.appId && workspace?.appId && apps.some((a) => a.id === workspace.appId)) filters.appId = workspace.appId;
     if (!filters.appId && apps.length) filters.appId = apps[0].id;
   } catch (e) {
     toastError(e, '加载应用失败');
@@ -223,6 +235,6 @@ onMounted(async () => {
   await loadVersions();
 });
 
-watch(() => filters.appId, loadVersions);
+watch(() => filters.appId, (v) => { if (workspace) workspace.appId = v; loadVersions(); });
 watch(() => filters.status, loadVersions);
 </script>

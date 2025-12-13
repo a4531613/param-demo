@@ -6,8 +6,21 @@
           <el-tag type="info">主路径</el-tag>
           <span class="cc-overview__hint">建议按顺序完成初始化，减少后续返工。</span>
         </div>
+        <div class="cc-toolbar__group">
+          <el-button type="primary" @click="go('snapshot')">查看版本清单</el-button>
+          <el-button link type="info" @click="refresh" :loading="loading">刷新进度</el-button>
+        </div>
       </div>
     </template>
+
+    <div class="cc-overview__meta">
+      <el-tag type="info">应用 {{ counts.apps }}</el-tag>
+      <el-tag type="info">环境 {{ counts.envs }}</el-tag>
+      <el-tag type="info">类型 {{ counts.types }}</el-tag>
+      <el-tag type="info">版本 {{ counts.versions }}</el-tag>
+      <el-tag type="info">字段 {{ counts.fields }}</el-tag>
+      <el-tag type="info">数据 {{ counts.data }}</el-tag>
+    </div>
 
     <el-steps direction="vertical" :active="activeStep" finish-status="success" class="cc-overview__steps">
       <el-step title="创建应用" description="建立应用归属，用于隔离类型/环境/版本。">
@@ -74,7 +87,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { api } from '../api';
 
 const emit = defineEmits(['navigate']);
 
@@ -82,13 +96,53 @@ function go(key) {
   emit('navigate', key);
 }
 
-const activeStep = computed(() => 1);
+const loading = ref(false);
+const counts = reactive({ apps: 0, envs: 0, types: 0, versions: 0, fields: 0, data: '—' });
+
+async function refresh() {
+  loading.value = true;
+  try {
+    const [apps, envs, types, versions, fields] = await Promise.all([
+      api.listApps(),
+      api.listEnvs(),
+      api.listTypes(),
+      api.listVersionsAll(),
+      api.listFieldsAll()
+    ]);
+    counts.apps = (apps || []).length;
+    counts.envs = (envs || []).length;
+    counts.types = (types || []).length;
+    counts.versions = (versions || []).length;
+    counts.fields = (fields || []).length;
+    counts.data = '—';
+  } finally {
+    loading.value = false;
+  }
+}
+
+const activeStep = computed(() => {
+  if (!counts.apps) return 0;
+  if (!counts.envs) return 1;
+  if (!counts.types) return 2;
+  if (!counts.versions) return 3;
+  if (!counts.fields) return 4;
+  return 6;
+});
+
+onMounted(refresh);
 </script>
 
 <style scoped>
 .cc-overview__hint {
   font-size: var(--cc-font-size-12);
   color: var(--cc-color-muted);
+}
+
+.cc-overview__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cc-space-2);
+  margin-bottom: var(--cc-space-3);
 }
 
 .cc-overview__steps {

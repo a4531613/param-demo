@@ -150,11 +150,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, watch, nextTick, ref } from 'vue';
+import { computed, onMounted, reactive, watch, nextTick, ref, inject } from 'vue';
 import { api } from '../api';
 import { capabilities } from '../userContext';
 import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 
+const workspace = inject('workspace', null);
 const apps = reactive([]);
 const types = reactive([]);
 const rows = reactive([]);
@@ -229,13 +230,16 @@ const rowsFiltered = computed(() => {
 });
 
 function ensureDefaults() {
+  if (!filters.appId && workspace?.appId && apps.find((a) => a.id === workspace.appId)) filters.appId = workspace.appId;
   if (!filters.appId && apps.length) filters.appId = apps[0].id;
   if (groupOptions.value.length && !groupOptions.value.find((g) => g.id === filters.groupId)) {
-    filters.groupId = groupOptions.value[0]?.id || null;
+    if (workspace?.groupId && groupOptions.value.find((g) => g.id === workspace.groupId)) filters.groupId = workspace.groupId;
+    else filters.groupId = groupOptions.value[0]?.id || null;
   }
   if (filters.typeId === 'COMMON') return;
   if (!typeOptions.value.find((t) => t.id === filters.typeId)) {
-    filters.typeId = typeOptions.value[0]?.id || null;
+    if (workspace?.typeId && typeOptions.value.find((t) => t.id === workspace.typeId)) filters.typeId = workspace.typeId;
+    else filters.typeId = typeOptions.value[0]?.id || null;
   }
 }
 
@@ -252,6 +256,25 @@ async function loadRefs() {
   }
   ensureDefaults();
 }
+
+watch(
+  () => filters.appId,
+  (v) => {
+    if (workspace) workspace.appId = v;
+  }
+);
+watch(
+  () => filters.groupId,
+  (v) => {
+    if (workspace) workspace.groupId = v;
+  }
+);
+watch(
+  () => filters.typeId,
+  (v) => {
+    if (workspace) workspace.typeId = v === 'COMMON' ? null : v;
+  }
+);
 
 async function loadFields() {
   const params = {};
