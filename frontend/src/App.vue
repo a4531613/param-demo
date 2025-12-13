@@ -35,6 +35,7 @@
           <el-sub-menu index="ops">
             <template #title>配置操作</template>
             <el-menu-item index="data">配置数据</el-menu-item>
+            <el-menu-item index="dataSearch">配置数据查询</el-menu-item>
           </el-sub-menu>
           <el-menu-item index="audit">审计日志</el-menu-item>
         </el-menu>
@@ -68,6 +69,7 @@ import TypesPanel from './components/TypesPanel.vue';
 import VersionsPanel from './components/VersionsPanel.vue';
 import FieldsManagePanel from './components/FieldsManagePanel.vue';
 import DataPanel from './components/DataPanel.vue';
+import DataSearchPanel from './components/DataSearchPanel.vue';
 import DiffPanel from './components/DiffPanel.vue';
 import AuditPanel from './components/AuditPanel.vue';
 
@@ -78,7 +80,7 @@ const versions = ref([]);
 const currentTypeId = ref(null);
 const currentVersionsFilterType = ref(null);
 
-const compMap = { overview: OverviewPanel, apps: AppsPanel, envs: EnvsPanel, types: TypesPanel, versions: VersionsPanel, fieldsManage: FieldsManagePanel, data: DataPanel, diff: DiffPanel, audit: AuditPanel };
+const compMap = { overview: OverviewPanel, apps: AppsPanel, envs: EnvsPanel, types: TypesPanel, versions: VersionsPanel, fieldsManage: FieldsManagePanel, data: DataPanel, dataSearch: DataSearchPanel, diff: DiffPanel, audit: AuditPanel };
 const currentComp = computed(() => compMap[active.value] || TypesPanel);
 
 const userName = ref(userContext.name);
@@ -97,6 +99,7 @@ const pageMetaMap = {
   versions: { title: '版本管理', desc: '创建版本、发布/归档，并作为配置变更的载体。' },
   fieldsManage: { title: '字段管理', desc: '定义字段结构（动态字段），影响数据录入、预览与导出。' },
   data: { title: '配置数据', desc: '在选定版本/环境/类型下维护 Key 与字段值，并支持预览与导出。' },
+  dataSearch: { title: '配置数据查询', desc: '按关键字查询已发布/已归档版本的配置数据，并按字段类型渲染查看。' },
   diff: { title: '版本对比', desc: '对比两个版本的字段与数据差异。' },
   audit: { title: '审计日志', desc: '查看关键操作轨迹，满足审计与追责需求。' }
 };
