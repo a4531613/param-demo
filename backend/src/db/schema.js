@@ -120,6 +120,47 @@ function cleanupDuplicateTypeGroups(db) {
   tx();
 }
 
+function cleanupReservedFieldCodes(db, reservedCodes = ['key']) {
+  const codes = (reservedCodes || [])
+    .map((c) => String(c || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (!codes.length) return;
+
+  const placeholders = codes.map(() => '?').join(', ');
+  const fields = db
+    .prepare(
+      `
+      SELECT id, type_id, field_code
+      FROM config_fields
+      WHERE LOWER(field_code) IN (${placeholders})
+    `
+    )
+    .all(...codes);
+  if (!fields.length) return;
+
+  const { safeParseJson } = require('../utils/safeJson');
+
+  const selectData = db.prepare(`SELECT id, data_json FROM config_data WHERE type_id = ? AND data_json LIKE ?`);
+  const updateData = db.prepare(`UPDATE config_data SET data_json = @data_json WHERE id = @id`);
+  const deleteField = db.prepare(`DELETE FROM config_fields WHERE id = ?`);
+
+  const tx = db.transaction(() => {
+    fields.forEach((f) => {
+      const like = `%\"${String(f.field_code)}\"%`;
+      const rows = selectData.all(f.type_id, like);
+      rows.forEach((r) => {
+        const obj = safeParseJson(r.data_json, null);
+        if (!obj || typeof obj !== 'object') return;
+        if (!(f.field_code in obj)) return;
+        delete obj[f.field_code];
+        updateData.run({ id: r.id, data_json: JSON.stringify(obj) });
+      });
+      deleteField.run(f.id);
+    });
+  });
+  tx();
+}
+
 function migrateConfigVersions(db) {
   const columns = db.prepare(`PRAGMA table_info(config_versions)`).all();
   const hasTypeId = columns.some((c) => c.name === 'type_id');
@@ -282,5 +323,6 @@ module.exports = {
   ensureConfigTypeGroups,
   ensureConfigTypesGroupId,
   seedDefaultTypeGroups,
-  cleanupDuplicateTypeGroups
+  cleanupDuplicateTypeGroups,
+  cleanupReservedFieldCodes
 };

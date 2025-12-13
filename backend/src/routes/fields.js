@@ -5,9 +5,28 @@ const { HttpError } = require('../utils/errors');
 const { toInt, getActor } = require('../utils/http');
 const { nowIso } = require('../utils/time');
 const { audit } = require('../audit');
+const { safeParseJson } = require('../utils/safeJson');
 
 function createFieldsRouter({ db }) {
   const router = express.Router();
+  const reservedFieldCodes = new Set(['key']);
+
+  function allocateFieldCode(typeId, raw) {
+    const preferred = String(raw || '').trim();
+    if (preferred) {
+      if (reservedFieldCodes.has(preferred.toLowerCase())) throw new HttpError(400, 'fieldCode reserved');
+      return preferred;
+    }
+    // Auto-generate: stable internal key for data_json binding.
+    let next = Number(db.prepare(`SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM config_fields`).get()?.next_id || 1);
+    const exists = db.prepare(`SELECT 1 FROM config_fields WHERE type_id = ? AND field_code = ? LIMIT 1`);
+    while (true) {
+      const code = `f${next}`;
+      if (!exists.get(typeId, code) && !reservedFieldCodes.has(code.toLowerCase())) return code;
+      next += 1;
+      if (next > 99999999) throw new HttpError(500, 'failed to allocate fieldCode');
+    }
+  }
 
   // Back-compat: historically `/api/versions/:typeId/fields` actually takes a versionId in the frontend.
   router.get(
@@ -22,7 +41,7 @@ function createFieldsRouter({ db }) {
             SELECT cf.*, t.app_id, t.type_code
             FROM config_fields cf
             JOIN config_types t ON cf.type_id = t.id
-            WHERE t.app_id IS ?
+            WHERE t.app_id IS ? AND LOWER(cf.field_code) <> 'key'
             ORDER BY cf.sort_order, cf.id
           `
           )
@@ -31,7 +50,9 @@ function createFieldsRouter({ db }) {
       }
 
       const typeId = idParam;
-      const rows = db.prepare(`SELECT * FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(typeId);
+      const rows = db
+        .prepare(`SELECT * FROM config_fields WHERE type_id = ? AND LOWER(field_code) <> 'key' ORDER BY sort_order, id`)
+        .all(typeId);
       return res.json(rows);
     })
   );
@@ -59,20 +80,24 @@ function createFieldsRouter({ db }) {
         INSERT INTO config_fields (type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      const info = stmt.run(
-        typeId,
-        body.fieldCode,
-        body.fieldName,
-        body.fieldType || null,
-        body.dataType || 'string',
-        body.maxLength || null,
-        body.required ? 1 : 0,
-        body.defaultValue || null,
-        body.validateRule || null,
-        body.enumOptions ? JSON.stringify(body.enumOptions) : null,
-        body.uniqueKeyPart ? 1 : 0,
-        body.sortOrder || 0
-      );
+      const tx = db.transaction(() => {
+        const code = allocateFieldCode(typeId, body.fieldCode);
+        return stmt.run(
+          typeId,
+          code,
+          body.fieldName,
+          body.fieldType || null,
+          body.dataType || 'string',
+          body.maxLength || null,
+          body.required ? 1 : 0,
+          body.defaultValue || null,
+          body.validateRule || null,
+          body.enumOptions ? JSON.stringify(body.enumOptions) : null,
+          body.uniqueKeyPart ? 1 : 0,
+          body.sortOrder || 0
+        );
+      });
+      const info = tx();
       audit(db, actor, 'CREATE_FIELD', 'ConfigField', info.lastInsertRowid, body);
       res.status(201).json({ id: info.lastInsertRowid });
     })
@@ -87,7 +112,7 @@ function createFieldsRouter({ db }) {
         SELECT cf.*, t.app_id, t.type_code
         FROM config_fields cf
         JOIN config_types t ON cf.type_id = t.id
-        WHERE 1=1
+        WHERE 1=1 AND LOWER(cf.field_code) <> 'key'
       `;
       const params = [];
       if (appId) { sql += ` AND t.app_id = ?`; params.push(appId); }
@@ -103,16 +128,19 @@ function createFieldsRouter({ db }) {
       requireRole(req, ['admin', 'appowner']);
       const body = req.body || {};
       const actor = getActor(req);
-      const info = db
-        .prepare(
-          `
-          INSERT INTO config_fields (type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, update_user, update_time)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      const typeId = Number(body.typeId);
+      if (!typeId) throw new HttpError(400, 'typeId required');
+      const stmt = db.prepare(
         `
-        )
-        .run(
-          body.typeId,
-          body.fieldCode,
+        INSERT INTO config_fields (type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, update_user, update_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      );
+      const tx = db.transaction(() => {
+        const code = allocateFieldCode(typeId, body.fieldCode);
+        return stmt.run(
+          typeId,
+          code,
           body.fieldName,
           body.fieldType || null,
           body.dataType || 'string',
@@ -128,6 +156,8 @@ function createFieldsRouter({ db }) {
           actor,
           nowIso()
         );
+      });
+      const info = tx();
       audit(db, actor, 'CREATE_FIELD', 'ConfigField', info.lastInsertRowid, body);
       res.status(201).json({ id: info.lastInsertRowid });
     })
@@ -191,10 +221,37 @@ function createFieldsRouter({ db }) {
       requireRole(req, ['admin', 'appowner']);
       const id = toInt(req.params.id, 'id');
       const actor = getActor(req);
-      const info = db.prepare(`DELETE FROM config_fields WHERE id = ?`).run(id);
-      if (!info.changes) throw new HttpError(404, 'not found');
-      audit(db, actor, 'DELETE_FIELD', 'ConfigField', id, {});
-      res.json({ id });
+      const field = db.prepare(`SELECT id, type_id, field_code FROM config_fields WHERE id = ?`).get(id);
+      if (!field) throw new HttpError(404, 'not found');
+
+      const selectData = db.prepare(
+        `SELECT id, data_json FROM config_data WHERE type_id = ? AND data_json LIKE ?`
+      );
+      const updateData = db.prepare(
+        `UPDATE config_data SET data_json = @data_json, update_user = @actor, update_time = @now WHERE id = @id`
+      );
+      const deleteField = db.prepare(`DELETE FROM config_fields WHERE id = ?`);
+
+      const tx = db.transaction(() => {
+        const like = `%\"${String(field.field_code)}\"%`;
+        const dataRows = selectData.all(field.type_id, like);
+        let affected = 0;
+        dataRows.forEach((r) => {
+          const obj = safeParseJson(r.data_json, null);
+          if (!obj || typeof obj !== 'object') return;
+          if (!(field.field_code in obj)) return;
+          delete obj[field.field_code];
+          updateData.run({ id: r.id, data_json: JSON.stringify(obj), actor, now: nowIso() });
+          affected += 1;
+        });
+        const info = deleteField.run(id);
+        if (!info.changes) throw new HttpError(404, 'not found');
+        return affected;
+      });
+
+      const affected = tx();
+      audit(db, actor, 'DELETE_FIELD', 'ConfigField', id, { fieldCode: field.field_code, typeId: field.type_id, affectedConfigRows: affected });
+      res.json({ id, affectedConfigRows: affected });
     })
   );
 

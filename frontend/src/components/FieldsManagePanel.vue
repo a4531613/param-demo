@@ -28,7 +28,7 @@
             {{ `${t.type_name} (${t.type_code})` }}
           </el-check-tag>
         </div>
-        <el-input v-model="filters.keyword" placeholder="按字段Key/名称过滤" clearable class="cc-control--md" />
+        <el-input v-model="filters.keyword" placeholder="按字段标识/名称过滤" clearable class="cc-control--md" />
         </div>
         <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite">新增字段</el-button>
       </div>
@@ -41,7 +41,6 @@
         </template>
       </el-table-column>
       <el-table-column prop="id" label="字段ID" width="90" />
-      <el-table-column prop="field_code" label="字段Key" width="140" />
       <el-table-column prop="field_name" label="字段名称" />
       <!-- 配置类型ID隐藏 -->
       <el-table-column label="字段类型" width="140">
@@ -79,7 +78,6 @@
       <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable :disabled="true">
         <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name} (${t.type_code})`" :value="t.id" />
       </el-select></el-form-item>
-      <el-form-item label="字段Key"><el-input v-model="modal.form.fieldCode" :disabled="!!modal.editId" /></el-form-item>
       <el-form-item label="字段名称"><el-input v-model="modal.form.fieldName" /></el-form-item>
       <el-form-item label="字段类型">
         <el-select v-model="modal.form.fieldType" placeholder="请选择">
@@ -142,7 +140,7 @@ const filters = reactive({ appId: null, groupId: null, typeId: null, keyword: ''
 const modal = reactive({
   visible: false,
   editId: null,
-  form: { appId: null, typeId: null, fieldCode: '', fieldName: '', fieldType: 'Input', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
+  form: { appId: null, typeId: null, fieldName: '', fieldType: 'Input', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
 });
 
 function inferDataTypeByFieldType(fieldType) {
@@ -197,9 +195,10 @@ const modalTypeOptions = computed(() =>
 const rowsFiltered = computed(() => {
   const kw = filters.keyword.toLowerCase();
   return rows.filter((r) => {
+    if (String(r.field_code || '').toLowerCase() === 'key') return false;
     const okApp = !filters.appId || r.app_id === filters.appId;
     const okType = !filters.typeId || r.type_id === filters.typeId;
-    const okKw = !kw || r.field_code.toLowerCase().includes(kw) || (r.field_name || '').toLowerCase().includes(kw);
+    const okKw = !kw || (r.field_name || '').toLowerCase().includes(kw);
     return okApp && okType && okKw;
   });
 });
@@ -233,7 +232,8 @@ async function loadFields() {
   if (filters.appId) params.appId = filters.appId;
   if (filters.typeId) params.typeId = filters.typeId;
   const list = await api.listFieldsAll(params);
-  rows.splice(0, rows.length, ...list.map((r, idx) => ({ ...r, sort_order: r.sort_order ?? idx })));
+  const filtered = (list || []).filter((r) => String(r.field_code || '').toLowerCase() !== 'key');
+  rows.splice(0, rows.length, ...filtered.map((r, idx) => ({ ...r, sort_order: r.sort_order ?? idx })));
   nextTick(applyRowDrag);
 }
 
@@ -243,7 +243,6 @@ function openModal(row) {
     modal.form = {
       appId: row.app_id,
       typeId: row.type_id,
-      fieldCode: row.field_code,
       fieldName: row.field_name,
       fieldType: row.field_type || '',
       dataType: row.data_type,
@@ -259,7 +258,6 @@ function openModal(row) {
     modal.form = {
       appId: filters.appId || (apps[0] && apps[0].id) || null,
       typeId: filters.typeId || (typeOptions.value[0] && typeOptions.value[0].id) || null,
-      fieldCode: '',
       fieldName: '',
       fieldType: 'Input',
       dataType: 'string',
@@ -277,8 +275,9 @@ function openModal(row) {
 
 async function save() {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
-  if (!modal.form.typeId || !modal.form.fieldCode || !modal.form.fieldName) return toastWarning('请填写必填项（类型/字段标识/名称）');
+  if (!modal.form.typeId || !modal.form.fieldName) return toastWarning('请填写必填项（类型/字段名称）');
   const payload = { ...modal.form };
+  if (!payload.fieldCode) delete payload.fieldCode;
   payload.fieldType = payload.fieldType || null;
   payload.dataType = payload.fieldType ? (inferDataTypeByFieldType(payload.fieldType) || payload.dataType) : payload.dataType;
   const shouldHaveEnums = needsEnumOptions(payload.fieldType) || payload.dataType === 'enum';
