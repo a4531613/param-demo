@@ -1218,7 +1218,12 @@ async function loadFieldsForSelection() {
   if (state.typeId) params.typeId = state.typeId;
   const list = await api.listFieldsAll(params);
   const filtered = (list || []).filter((f) => String(f.field_code || '').toLowerCase() !== 'key');
-  fields.value = [...filtered].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id);
+  fields.value = [...filtered].sort(
+    (a, b) =>
+      (a.is_common ? 0 : 1) - (b.is_common ? 0 : 1) ||
+      (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+      a.id - b.id
+  );
 }
 
 async function buildEnvForms(row) {
