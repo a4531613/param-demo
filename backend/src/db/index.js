@@ -1,6 +1,13 @@
 const Database = require('better-sqlite3');
 const { dbPath } = require('../config');
-const { initSchema, ensureConfigDataEnv, ensureConfigFieldsFieldType } = require('./schema');
+const {
+  initSchema,
+  ensureConfigDataEnv,
+  ensureConfigFieldsFieldType,
+  ensureConfigTypeGroups,
+  ensureConfigTypesGroupId,
+  seedDefaultTypeGroups
+} = require('./schema');
 
 let db;
 
@@ -11,6 +18,9 @@ function getDb() {
   initSchema(db);
   ensureConfigDataEnv(db);
   ensureConfigFieldsFieldType(db);
+  ensureConfigTypeGroups(db);
+  ensureConfigTypesGroupId(db);
+  seedDefaultTypeGroups(db);
   return db;
 }
 

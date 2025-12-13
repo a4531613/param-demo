@@ -1,6 +1,7 @@
 const express = require('express');
 const { createAppsRouter } = require('./apps');
 const { createEnvsRouter } = require('./envs');
+const { createTypeGroupsRouter } = require('./typeGroups');
 const { createTypesRouter } = require('./types');
 const { createVersionsRouter } = require('./versions');
 const { createFieldsRouter } = require('./fields');
@@ -13,6 +14,7 @@ function createApiRouter({ db }) {
   const router = express.Router();
   router.use(createAppsRouter({ db }));
   router.use(createEnvsRouter({ db }));
+  router.use(createTypeGroupsRouter({ db }));
   router.use(createTypesRouter({ db }));
   router.use(createVersionsRouter({ db }));
   router.use(createFieldsRouter({ db }));
@@ -24,4 +26,3 @@ function createApiRouter({ db }) {
 }
 
 module.exports = { createApiRouter };
-

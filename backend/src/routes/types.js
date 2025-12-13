@@ -28,12 +28,13 @@ function createTypesRouter({ db }) {
   router.get(
     '/types',
     wrap((req, res) => {
-      const { appId, envId } = req.query;
+      const { appId, envId, groupId } = req.query;
       let sql = `
-        SELECT t.*, a.app_name, e.env_name
+        SELECT t.*, a.app_name, e.env_name, g.group_name, g.group_code
         FROM config_types t
         LEFT JOIN applications a ON t.app_id = a.id
         LEFT JOIN environments e ON t.env_id = e.id
+        LEFT JOIN config_type_groups g ON t.group_id = g.id
         WHERE 1=1
       `;
       const params = [];
@@ -44,6 +45,10 @@ function createTypesRouter({ db }) {
       if (envId) {
         sql += ` AND t.env_id = ?`;
         params.push(envId);
+      }
+      if (groupId) {
+        sql += ` AND t.group_id = ?`;
+        params.push(groupId);
       }
       sql += ` ORDER BY t.sort_order, t.id DESC`;
       res.json(db.prepare(sql).all(params));
@@ -62,12 +67,13 @@ function createTypesRouter({ db }) {
     wrap((req, res) => {
       requireRole(req, ['admin', 'appowner']);
       const body = req.body || {};
-      if (!body.appId || !body.envId) throw new HttpError(400, 'appId and envId are required');
+      if (!body.appId) throw new HttpError(400, 'appId required');
+      if (!body.typeName) throw new HttpError(400, 'typeName required');
 
       const actor = getActor(req);
       const stmt = db.prepare(`
-        INSERT INTO config_types (type_code, type_name, app_id, env_id, biz_domain, description, enabled, sort_order, create_user, update_user, update_time)
-        VALUES (@type_code, @type_name, @app_id, @env_id, @biz_domain, @description, @enabled, @sort_order, @actor, @actor, @now)
+        INSERT INTO config_types (type_code, type_name, app_id, env_id, group_id, biz_domain, description, enabled, sort_order, create_user, update_user, update_time)
+        VALUES (@type_code, @type_name, @app_id, @env_id, @group_id, @biz_domain, @description, @enabled, @sort_order, @actor, @actor, @now)
       `);
       const tx = db.transaction(() => {
         const typeCode = nextTypeCode(db);
@@ -76,6 +82,7 @@ function createTypesRouter({ db }) {
           type_name: body.typeName,
           app_id: body.appId || null,
           env_id: body.envId || null,
+          group_id: body.groupId || null,
           biz_domain: body.bizDomain || null,
           description: body.description || '',
           enabled: body.enabled ? 1 : 0,
@@ -106,6 +113,7 @@ function createTypesRouter({ db }) {
           SET type_name = COALESCE(@type_name, type_name),
               description = COALESCE(@description, description),
               enabled = COALESCE(@enabled, enabled),
+              group_id = COALESCE(@group_id, group_id),
               biz_domain = COALESCE(@biz_domain, biz_domain),
               env_id = COALESCE(@env_id, env_id),
               app_id = COALESCE(@app_id, app_id),
@@ -120,6 +128,7 @@ function createTypesRouter({ db }) {
           type_name: body.typeName ?? null,
           description: body.description ?? null,
           enabled: body.enabled === undefined ? null : body.enabled ? 1 : 0,
+          group_id: body.groupId ?? null,
           biz_domain: body.bizDomain ?? null,
           env_id: body.envId ?? null,
           app_id: body.appId ?? null,
@@ -150,4 +159,3 @@ function createTypesRouter({ db }) {
 }
 
 module.exports = { createTypesRouter };
-

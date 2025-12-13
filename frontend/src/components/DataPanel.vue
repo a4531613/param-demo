@@ -15,8 +15,14 @@
               {{ `${e.env_name} (${e.env_code})` }}
             </el-check-tag>
           </div>
+          <div class="cc-tag-group" v-if="groupOptions.length">
+            <span class="cc-tag-label">大类</span>
+            <el-check-tag v-for="g in groupOptions" :key="g.id" :checked="state.groupId === g.id" @click="onGroupSelect(g.id)">
+              {{ `${g.group_name} (${g.group_code})` }}
+            </el-check-tag>
+          </div>
           <div class="cc-tag-group" v-if="typeOptions.length">
-            <span class="cc-tag-label">配置类型</span>
+            <span class="cc-tag-label">小类</span>
             <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
               {{ `${t.type_name} (${t.type_code})` }}
             </el-check-tag>
@@ -492,7 +498,7 @@ const fields = ref([]);
 const meta = ref(null);
 const apps = ref([]);
 const envs = ref([]);
-const state = reactive({ appId: null, envId: null, typeId: null, versionId: null });
+const state = reactive({ appId: null, envId: null, groupId: null, typeId: null, versionId: null });
 const showEnabledOnly = ref(true);
 const displayedRows = computed(() =>
   showEnabledOnly.value ? rows.value.filter((r) => r.status === 'ENABLED') : rows.value
@@ -519,7 +525,18 @@ const envCarousel = reactive({ start: 0, pageSize: 3 });
 const previewCarousel = reactive({ start: 0, pageSize: 3 });
 
 const envOptions = computed(() => envs.value.filter((e) => !state.appId || e.app_id === state.appId));
-const typeOptions = computed(() => props.types.filter((t) => !state.appId || t.app_id === state.appId));
+const groupOptions = computed(() => {
+  const list = props.types.filter((t) => !state.appId || t.app_id === state.appId);
+  const m = new Map();
+  list.forEach((t) => {
+    if (!t.group_id) return;
+    if (!m.has(t.group_id)) m.set(t.group_id, { id: t.group_id, group_name: t.group_name || '未命名', group_code: t.group_code || t.group_id });
+  });
+  return [...m.values()];
+});
+const typeOptions = computed(() =>
+  props.types.filter((t) => (!state.appId || t.app_id === state.appId) && (!state.groupId || t.group_id === state.groupId))
+);
 const versionOptions = computed(() =>
   props.versions.filter(
     (v) =>
@@ -666,6 +683,11 @@ async function load() {
 
 function onEnvSelect(id) {
   state.envId = id;
+  load();
+}
+function onGroupSelect(id) {
+  state.groupId = id;
+  ensureDefaults();
   load();
 }
 function onTypeSelect(id) {
@@ -1344,6 +1366,9 @@ function ensureDefaults() {
   if (!envOptions.value.find((e) => e.id === state.envId)) {
     state.envId = envOptions.value[0]?.id || null;
   }
+  if (groupOptions.value.length && !groupOptions.value.find((g) => g.id === state.groupId)) {
+    state.groupId = groupOptions.value[0]?.id || null;
+  }
   if (!typeOptions.value.find((t) => t.id === state.typeId) && typeOptions.value.length) {
     state.typeId = typeOptions.value[0].id;
   }
@@ -1369,6 +1394,14 @@ watch(
 
 watch(
   () => state.envId,
+  () => {
+    ensureDefaults();
+    load();
+  }
+);
+
+watch(
+  () => state.groupId,
   () => {
     ensureDefaults();
     load();

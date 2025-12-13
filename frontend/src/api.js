@@ -41,6 +41,12 @@ export const api = {
   createType: (payload) => request('/types', { method: 'POST', body: JSON.stringify(payload) }),
   updateType: (id, payload) => request(`/types/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteType: (id) => request(`/types/${id}`, { method: 'DELETE' }),
+  // type groups
+  listTypeGroups: (params = {}) => request(`/type-groups?${new URLSearchParams(params)}`),
+  nextTypeGroupCode: (params = {}) => request(`/type-groups/next-code?${new URLSearchParams(params)}`),
+  createTypeGroup: (payload) => request('/type-groups', { method: 'POST', body: JSON.stringify(payload) }),
+  updateTypeGroup: (id, payload) => request(`/type-groups/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteTypeGroup: (id) => request(`/type-groups/${id}`, { method: 'DELETE' }),
   // versions
   listVersions: (typeId) => request(`/types/${typeId}/versions`),
   listVersionsAll: (params={}) => request(`/versions?${new URLSearchParams(params)}`),

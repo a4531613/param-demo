@@ -35,6 +35,54 @@ function ensureConfigFieldsFieldType(db) {
   }
 }
 
+function ensureConfigTypeGroups(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS config_type_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_code TEXT NOT NULL,
+      group_name TEXT NOT NULL,
+      app_id INTEGER,
+      description TEXT,
+      enabled INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      create_user TEXT,
+      create_time TEXT DEFAULT (datetime('now')),
+      update_user TEXT,
+      update_time TEXT DEFAULT (datetime('now')),
+      UNIQUE(group_code, app_id),
+      FOREIGN KEY(app_id) REFERENCES applications(id) ON DELETE SET NULL
+    );
+  `);
+}
+
+function ensureConfigTypesGroupId(db) {
+  const hasGroupId = db.prepare(`PRAGMA table_info(config_types)`).all().some((c) => c.name === 'group_id');
+  if (!hasGroupId) {
+    db.exec(`ALTER TABLE config_types ADD COLUMN group_id INTEGER`);
+  }
+}
+
+function seedDefaultTypeGroups(db) {
+  // Create a default group per app_id and attach existing types that have no group_id.
+  const apps = db.prepare(`SELECT DISTINCT app_id FROM config_types`).all().map((r) => r.app_id ?? null);
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO config_type_groups (group_code, group_name, app_id, description, enabled, sort_order)
+    VALUES (@group_code, @group_name, @app_id, @description, 1, 0)
+  `);
+  const find = db.prepare(`SELECT id FROM config_type_groups WHERE group_code = @group_code AND app_id IS @app_id`);
+  const updateTypes = db.prepare(`UPDATE config_types SET group_id = @group_id WHERE group_id IS NULL AND app_id IS @app_id`);
+
+  const tx = db.transaction(() => {
+    apps.forEach((appId) => {
+      const groupCode = 'default';
+      insert.run({ group_code: groupCode, group_name: '默认大类', app_id: appId, description: '自动生成的默认大类' });
+      const group = find.get({ group_code: groupCode, app_id: appId });
+      if (group?.id) updateTypes.run({ group_id: group.id, app_id: appId });
+    });
+  });
+  tx();
+}
+
 function migrateConfigVersions(db) {
   const columns = db.prepare(`PRAGMA table_info(config_versions)`).all();
   const hasTypeId = columns.some((c) => c.name === 'type_id');
@@ -190,4 +238,11 @@ function initSchema(db) {
   migrateConfigVersions(db);
 }
 
-module.exports = { initSchema, ensureConfigDataEnv, ensureConfigFieldsFieldType };
+module.exports = {
+  initSchema,
+  ensureConfigDataEnv,
+  ensureConfigFieldsFieldType,
+  ensureConfigTypeGroups,
+  ensureConfigTypesGroupId,
+  seedDefaultTypeGroups
+};
