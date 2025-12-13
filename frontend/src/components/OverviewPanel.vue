@@ -26,10 +26,10 @@
           </div>
         </template>
       </el-step>
-      <el-step title="创建配置类型" description="定义 type_code/type_name，作为字段与数据承载。">
+      <el-step title="创建配置类型" description="定义类型名称，作为字段与数据承载。">
         <template #description>
           <div class="cc-overview__desc">
-            <div>定义 type_code/type_name，作为字段与数据承载。</div>
+            <div>定义类型名称，作为字段与数据承载。</div>
             <el-button @click="go('types')">去创建类型</el-button>
           </div>
         </template>
@@ -107,4 +107,3 @@ const activeStep = computed(() => 1);
   flex-wrap: wrap;
 }
 </style>
-

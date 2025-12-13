@@ -3,12 +3,12 @@
     <template #header>
       <div class="cc-toolbar">
         <div class="cc-toolbar__group">
-          <el-input v-model="filters.keyword" placeholder="按名称/ID过滤" clearable class="cc-control--md" />
+          <el-input v-model="filters.keyword" placeholder="按名称过滤" clearable class="cc-control--md" />
           <el-select v-model="filters.appId" placeholder="应用" class="cc-control--sm">
-            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
           </el-select>
           <el-select v-if="activeTab === 'types'" v-model="filters.groupId" placeholder="大类" class="cc-control--sm" clearable>
-            <el-option v-for="g in groupOptions" :key="g.id" :label="`${g.group_name} (${g.group_code})`" :value="g.id" />
+            <el-option v-for="g in groupOptions" :key="g.id" :label="`${g.group_name}`" :value="g.id" />
           </el-select>
         </div>
         <div class="cc-toolbar__group">
@@ -22,10 +22,9 @@
       <el-tab-pane name="groups" label="大类">
         <el-empty v-if="!groupFiltered.length" description="暂无大类，请先创建大类。" />
         <el-table v-else :data="groupFiltered" border class="cc-table-full" :row-key="(row) => row.id">
-          <el-table-column prop="id" label="ID" width="80" />
           <el-table-column prop="group_name" label="大类名称" />
           <el-table-column prop="app_name" label="应用" width="220">
-            <template #default="s">{{ `${s.row.app_name || ''} (ID:${s.row.app_id})` }}</template>
+            <template #default="s">{{ `${s.row.app_name || ''}` }}</template>
           </el-table-column>
           <el-table-column prop="description" label="描述" />
           <el-table-column prop="enabled" label="启用" width="90">
@@ -43,13 +42,12 @@
       <el-tab-pane name="types" label="小类">
         <el-empty v-if="!typeFiltered.length" description="暂无小类，请先创建小类。" />
         <el-table v-else :data="typeFiltered" border class="cc-table-full" :row-key="(row) => row.id">
-          <el-table-column prop="id" label="ID" width="80" />
           <el-table-column prop="type_name" label="小类名称" />
           <el-table-column label="大类" width="220">
             <template #default="s">{{ s.row.group_name ? `${s.row.group_name} (${s.row.group_code})` : '-' }}</template>
           </el-table-column>
           <el-table-column prop="app_name" label="应用" width="220">
-            <template #default="s">{{ `${s.row.app_name || ''} (ID:${s.row.app_id})` }}</template>
+            <template #default="s">{{ `${s.row.app_name || ''}` }}</template>
           </el-table-column>
           <el-table-column prop="description" label="描述" />
           <el-table-column prop="enabled" label="启用" width="90">
@@ -72,7 +70,7 @@
       <el-form-item label="大类名称"><el-input v-model="groupModal.form.groupName" /></el-form-item>
       <el-form-item label="应用">
         <el-select v-model="groupModal.form.appId" placeholder="请选择应用">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="启用"><el-switch v-model="groupModal.form.enabled" /></el-form-item>
@@ -89,12 +87,12 @@
       <el-form-item label="小类名称"><el-input v-model="typeModal.form.typeName" /></el-form-item>
       <el-form-item label="应用">
         <el-select v-model="typeModal.form.appId" placeholder="请选择应用">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="大类">
         <el-select v-model="typeModal.form.groupId" placeholder="请选择大类">
-          <el-option v-for="g in groupOptionsForModal" :key="g.id" :label="`${g.group_name} (${g.group_code})`" :value="g.id" />
+          <el-option v-for="g in groupOptionsForModal" :key="g.id" :label="`${g.group_name}`" :value="g.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="启用"><el-switch v-model="typeModal.form.enabled" /></el-form-item>

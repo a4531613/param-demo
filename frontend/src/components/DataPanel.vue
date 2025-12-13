@@ -4,7 +4,7 @@
       <div class="cc-toolbar">
         <div class="toolbar__filters">
           <el-select v-model="state.appId" placeholder="应用" class="cc-control--md">
-            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
           </el-select>
           <el-select v-model="state.versionId" placeholder="选择版本" class="cc-control--lg" @change="load">
             <el-option v-for="v in versionOptions" :key="v.id" :label="`${v.version_no} (${statusLabel(v.status)})`" :value="v.id" />
@@ -12,19 +12,19 @@
           <div class="cc-tag-group" v-if="envOptions.length">
             <span class="cc-tag-label">环境</span>
             <el-check-tag v-for="e in envOptions" :key="e.id" :checked="state.envId === e.id" @click="onEnvSelect(e.id)">
-              {{ `${e.env_name} (ID:${e.id})` }}
+              {{ `${e.env_name}` }}
             </el-check-tag>
           </div>
           <div class="cc-tag-group" v-if="groupOptions.length">
             <span class="cc-tag-label">大类</span>
             <el-check-tag v-for="g in groupOptions" :key="g.id" :checked="state.groupId === g.id" @click="onGroupSelect(g.id)">
-              {{ `${g.group_name} (${g.group_code})` }}
+              {{ `${g.group_name}` }}
             </el-check-tag>
           </div>
           <div class="cc-tag-group" v-if="typeOptions.length">
             <span class="cc-tag-label">小类</span>
             <el-check-tag v-for="t in typeOptions" :key="t.id" :checked="state.typeId === t.id" @click="onTypeSelect(t.id)">
-              {{ `${t.type_name} (ID:${t.id})` }}
+              {{ `${t.type_name}` }}
             </el-check-tag>
           </div>
           <el-switch v-model="showEnabledOnly" active-text="只看启用" inactive-text="全部" />
@@ -53,10 +53,7 @@
         <input type="file" ref="importInput" class="cc-hidden" accept=".csv,text/csv" @change="handleImport" />
       </div>
       <div v-if="meta" class="meta">
-        <el-tag>版本ID: {{ meta.id }}</el-tag>
         <el-tag>版本号: {{ meta.version_no }}</el-tag>
-        <el-tag>类型ID: {{ meta.type_id }}</el-tag>
-        <el-tag>应用ID: {{ meta.app_id }}</el-tag>
         <el-tag>生效: {{ meta.effective_from || '—' }} ~ {{ meta.effective_to || '—' }}</el-tag>
       </div>
     </template>
@@ -191,9 +188,8 @@
       <div class="env-form-grid">
         <el-card v-for="ef in visibleEnvForms" :key="ef.envId" shadow="hover" class="env-card">
           <div class="env-card__header">
-            <div class="env-card__title">{{ ef.envName }} ({{ ef.envCode }})</div>
+            <div class="env-card__title">{{ ef.envName }}</div>
             <div class="env-card__meta">
-              <el-tag size="small" type="info">版本ID: {{ ef.versionId || '–' }}</el-tag>
               <el-tag size="small" :type="ef.versionStatus === 'ARCHIVED' ? 'info' : 'success'">
                 {{ statusLabel(ef.versionStatus) || '未发布' }}
               </el-tag>
@@ -260,9 +256,8 @@
         <div class="env-form-grid">
           <el-card v-for="ef in visiblePreviewEnvForms" :key="ef.envId" shadow="hover" class="env-card">
             <div class="env-card__header">
-              <div class="env-card__title">{{ ef.envName }} ({{ ef.envCode }})</div>
+              <div class="env-card__title">{{ ef.envName }}</div>
               <div class="env-card__meta">
-                <el-tag size="small" type="info">版本ID: {{ ef.versionId || '—' }}</el-tag>
                 <el-tag size="small" :type="ef.versionStatus === 'ARCHIVED' ? 'info' : 'success'">
                   {{ statusLabel(ef.versionStatus) || '未发布' }}
                 </el-tag>
@@ -298,11 +293,7 @@
   <el-dialog v-model="htmlPreview.visible" title="HTML预览" width="92vw" top="4vh">
     <div class="html-preview">
       <div class="html-preview__toolbar">
-        <div class="html-preview__meta">
-          <el-tag v-if="state.appId" type="info">应用ID: {{ state.appId }}</el-tag>
-          <el-tag v-if="state.versionId" type="info">版本ID: {{ state.versionId }}</el-tag>
-          <el-tag v-if="state.envId" type="info">环境ID: {{ state.envId }}</el-tag>
-        </div>
+        <div class="html-preview__meta" />
         <div class="html-preview__actions">
           <el-button @click="openHtmlPreview" :loading="htmlPreview.loading" :disabled="!state.appId || !state.versionId || !state.envId">刷新</el-button>
           <el-button @click="downloadAllHtml" :disabled="!state.appId || !state.versionId || !state.envId">导出HTML</el-button>
@@ -569,8 +560,8 @@ const canPreviewSlideNext = computed(
 const safeParse = (text) => {
   try { return JSON.parse(text); } catch (e) { return {}; }
 };
-const envLabelById = computed(() => new Map(envs.value.map((e) => [e.id, `${e.env_name} (ID:${e.id})`])));
-const typeLabelById = computed(() => new Map(props.types.map((t) => [t.id, `${t.type_name} (ID:${t.id})`])));
+const envLabelById = computed(() => new Map(envs.value.map((e) => [e.id, `${e.env_name}`])));
+const typeLabelById = computed(() => new Map(props.types.map((t) => [t.id, `${t.type_name}`])));
 const envLabelOf = (envId) => (envId === null || envId === undefined ? '全局（无环境）' : envLabelById.value.get(envId) || `Env ${envId}`);
 const typeLabelOf = (typeId) => (typeId === null || typeId === undefined ? '未知类型' : typeLabelById.value.get(typeId) || `Type ${typeId}`);
 

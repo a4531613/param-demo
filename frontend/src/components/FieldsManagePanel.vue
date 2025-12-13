@@ -4,7 +4,7 @@
       <div class="cc-toolbar">
         <div class="cc-toolbar__group">
         <el-select v-model="filters.appId" placeholder="应用" class="cc-control--sm">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
         </el-select>
         <div class="cc-tag-group" v-if="groupOptions.length">
           <span class="cc-tag-label">大类</span>
@@ -14,7 +14,7 @@
             :checked="filters.groupId === g.id"
             @click="filters.groupId = g.id"
           >
-            {{ `${g.group_name} (${g.group_code})` }}
+            {{ `${g.group_name}` }}
           </el-check-tag>
         </div>
         <div class="cc-tag-group" v-if="typeOptions.length">
@@ -25,7 +25,7 @@
             :checked="filters.typeId === t.id"
             @click="filters.typeId = t.id"
           >
-            {{ `${t.type_name} (ID:${t.id})` }}
+            {{ `${t.type_name}` }}
           </el-check-tag>
         </div>
         <el-input v-model="filters.keyword" placeholder="按字段标识/名称过滤" clearable class="cc-control--md" />
@@ -40,7 +40,6 @@
           <span class="drag-handle">☰</span> {{ scope.row.sort_order ?? '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="id" label="字段ID" width="90" />
       <el-table-column prop="field_name" label="字段名称" />
       <!-- 配置类型ID隐藏 -->
       <el-table-column label="字段类型" width="140">
@@ -72,11 +71,11 @@
     <el-form :model="modal.form" label-width="130px">
       <el-form-item label="所属应用">
         <el-select v-model="modal.form.appId" :disabled="true">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable :disabled="true">
-        <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name} (ID:${t.id})`" :value="t.id" />
+        <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name}`" :value="t.id" />
       </el-select></el-form-item>
       <el-form-item label="字段名称"><el-input v-model="modal.form.fieldName" /></el-form-item>
       <el-form-item label="字段类型">

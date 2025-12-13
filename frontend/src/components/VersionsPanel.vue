@@ -4,7 +4,7 @@
       <div class="cc-toolbar">
         <div class="cc-toolbar__group">
           <el-select v-model="filters.appId" placeholder="应用" clearable class="cc-control--sm">
-            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+            <el-option v-for="a in apps" :key="a.id" :label="a.app_name" :value="a.id" />
           </el-select>
           <el-select v-model="filters.status" placeholder="状态" clearable class="cc-control--xs">
             <el-option label="待发布" value="PENDING_RELEASE" />
@@ -15,11 +15,13 @@
         <el-button type="primary" @click="openModal()" :disabled="!capabilities.canWrite">新增版本</el-button>
       </div>
     </template>
+
     <el-empty v-if="!versions.length" description="暂无版本，请先创建版本。" />
-    <el-table v-else :data="versions" border>
-      <el-table-column prop="id" label="版本ID" width="90" />
-      <el-table-column prop="version_no" label="版本号" width="140" />
-      <el-table-column prop="app_code" label="应用" width="160" />
+    <el-table v-else :data="versions" border :row-key="(row) => row.id">
+      <el-table-column prop="version_no" label="版本号" width="160" />
+      <el-table-column label="应用" width="200">
+        <template #default="s">{{ appLabel(s.row.app_id) }}</template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" width="140">
         <template #default="s"><el-tag :type="tagType(s.row.status)">{{ statusLabel(s.row.status) }}</el-tag></template>
       </el-table-column>
@@ -49,7 +51,7 @@
     <el-form :model="modal.form" label-width="120px">
       <el-form-item label="应用">
         <el-select v-model="modal.form.appId" filterable :disabled="!!modal.editId">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="a.app_name" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="版本号"><el-input v-model="modal.form.versionNo" /></el-form-item>
@@ -59,14 +61,14 @@
       <el-form-item label="启用"><el-switch v-model="modal.form.enabled" /></el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="modal.visible=false">取消</el-button>
+      <el-button @click="modal.visible = false">取消</el-button>
       <el-button type="primary" @click="save">保存</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
-import { reactive, onMounted, watch } from 'vue';
+import { computed, reactive, onMounted, watch } from 'vue';
 import { api } from '../api';
 import { capabilities } from '../userContext';
 import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
@@ -74,23 +76,20 @@ import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/fee
 const apps = reactive([]);
 const versions = reactive([]);
 const filters = reactive({ appId: null, status: '' });
-const modal = reactive({
-  visible: false,
-  editId: null,
-  form: { appId: null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true }
-});
+const modal = reactive({ visible: false, editId: null, form: { appId: null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true } });
 
 const statusLabelMap = { PENDING_RELEASE: '待发布', RELEASED: '已发布', ARCHIVED: '已归档' };
 const tagType = (s) => (s === 'RELEASED' ? 'success' : s === 'PENDING_RELEASE' ? 'warning' : s === 'ARCHIVED' ? 'info' : '');
 const statusLabel = (s) => statusLabelMap[s] || s;
 const canRelease = (row) => ['PENDING_RELEASE', 'ARCHIVED'].includes(row.status);
 
+const appById = computed(() => new Map(apps.map((a) => [a.id, a.app_name])));
+const appLabel = (appId) => appById.value.get(appId) || '';
+
 async function loadRefs() {
   try {
     apps.splice(0, apps.length, ...(await api.listApps()));
-    if (!filters.appId && apps.length) {
-      filters.appId = apps[0].id;
-    }
+    if (!filters.appId && apps.length) filters.appId = apps[0].id;
   } catch (e) {
     toastError(e, '加载应用失败');
   }
@@ -102,7 +101,7 @@ async function loadVersions() {
     if (filters.appId) params.appId = filters.appId;
     if (filters.status) params.status = filters.status;
     const list = await api.listVersionsAll(params);
-    versions.splice(0, versions.length, ...list);
+    versions.splice(0, versions.length, ...(list || []));
   } catch (e) {
     toastError(e, '加载版本失败');
   }
@@ -121,7 +120,7 @@ function openModal(row) {
     };
   } else {
     modal.editId = null;
-    modal.form = { appId: filters.appId || (apps[0] && apps[0].id) || null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true };
+    modal.form = { appId: filters.appId || apps[0]?.id || null, versionNo: '', description: '', effectiveFrom: '', effectiveTo: '', enabled: true };
   }
   modal.visible = true;
 }
@@ -159,7 +158,7 @@ async function setStatus(row, status) {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   try {
     await api.updateVersion(row.id, { status });
-    toastSuccess(`状态已更新为${statusLabel(status)}`);
+    toastSuccess(`状态已更新为 ${statusLabel(status)}`);
     await loadVersions();
   } catch (e) {
     toastError(e, '状态更新失败');
@@ -183,17 +182,6 @@ onMounted(async () => {
   await loadVersions();
 });
 
-watch(
-  () => filters.appId,
-  async () => {
-    await loadVersions();
-  }
-);
-
-watch(
-  () => filters.status,
-  async () => {
-    await loadVersions();
-  }
-);
+watch(() => filters.appId, loadVersions);
+watch(() => filters.status, loadVersions);
 </script>

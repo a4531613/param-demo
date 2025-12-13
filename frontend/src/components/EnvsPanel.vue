@@ -4,7 +4,7 @@
       <div class="cc-toolbar">
         <div class="cc-toolbar__group">
           <el-select v-model="filters.appId" placeholder="选择应用" class="cc-control--lg">
-            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+            <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
           </el-select>
         </div>
         <div class="cc-toolbar__group">
@@ -16,7 +16,6 @@
 
     <el-empty v-if="!rowsFiltered.length" description="暂无环境，请先创建环境。" />
     <el-table v-else :data="rowsFiltered" border :row-key="(row) => row.id">
-      <el-table-column prop="id" label="环境ID" width="90" />
       <el-table-column prop="env_name" label="环境名称" />
       <el-table-column label="所属应用" width="200">
         <template #default="s">{{ appLabel(s.row.app_id) }}</template>
@@ -44,7 +43,7 @@
     <el-form :model="modal.form" label-width="120px">
       <el-form-item label="所属应用">
         <el-select v-model="modal.form.appId" :disabled="!!modal.editId">
-          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name} (ID:${a.id})`" :value="a.id" />
+          <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
         </el-select>
       </el-form-item>
       <el-form-item label="环境名称"><el-input v-model="modal.form.envName" /></el-form-item>
@@ -73,7 +72,7 @@ const appById = computed(() => new Map(apps.map((a) => [a.id, a])));
 const appLabel = (appId) => {
   const a = appById.value.get(appId);
   if (!a) return `App ${appId}`;
-  return `${a.app_name} (ID:${a.id})`;
+  return `${a.app_name}`;
 };
 
 const rowsFiltered = computed(() => {

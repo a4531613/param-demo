@@ -3,7 +3,7 @@
     <template #header>
       <div class="cc-toolbar">
         <div class="cc-toolbar__group">
-          <el-input v-model="filters.keyword" placeholder="按名称/ID过滤" clearable class="cc-control--xl" />
+          <el-input v-model="filters.keyword" placeholder="按名称过滤" clearable class="cc-control--xl" />
         </div>
         <div class="cc-toolbar__group">
           <el-switch v-model="filters.enabledOnly" active-text="仅启用" />
@@ -14,7 +14,6 @@
 
     <el-empty v-if="!filtered.length" description="暂无应用，请先创建应用。" />
     <el-table v-else :data="filtered" border :row-key="(row) => row.id">
-      <el-table-column prop="id" label="应用ID" width="90" />
       <el-table-column prop="app_name" label="应用名称" />
       <el-table-column prop="description" label="描述" />
       <el-table-column prop="enabled" label="启用" width="90">
