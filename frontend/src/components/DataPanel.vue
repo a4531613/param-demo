@@ -52,6 +52,7 @@
                 <el-dropdown-item :disabled="!state.versionId" @click="downloadData">导出</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="downloadAllHtml">导出HTML</el-dropdown-item>
                 <el-dropdown-item :disabled="!state.appId || !state.versionId || !state.envId" @click="openHtmlPreview">一键预览</el-dropdown-item>
+                <el-dropdown-item :disabled="!state.appId" @click="openSearch">配置数据查询</el-dropdown-item>
                 <el-dropdown-item divided :disabled="!capabilities.canWrite || isArchivedVersion || !state.versionId" @click="triggerImport">导入</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -345,6 +346,86 @@
     </template>
   </el-dialog>
 
+  <el-dialog v-model="searchDialog.visible" title="配置数据查询" width="92vw" top="4vh">
+    <div class="search-toolbar">
+      <el-input
+        v-model="searchDialog.q"
+        placeholder="关键字（Key 或 值）"
+        clearable
+        class="cc-control--lg"
+        @keyup.enter="runSearch"
+      />
+      <el-select v-model="searchDialog.envId" placeholder="环境(可选)" clearable class="cc-control--md">
+        <el-option v-for="e in envOptions" :key="e.id" :label="`${e.env_name}`" :value="e.id" />
+      </el-select>
+      <el-select v-model="searchDialog.groupId" placeholder="大类(可选)" clearable class="cc-control--md">
+        <el-option v-for="g in searchGroupOptions" :key="g.id" :label="`${g.group_name}`" :value="g.id" />
+      </el-select>
+      <el-select v-model="searchDialog.typeId" placeholder="小类(可选)" clearable filterable class="cc-control--lg">
+        <el-option v-for="t in searchTypeOptions" :key="t.id" :label="`${t.type_name}`" :value="t.id" />
+      </el-select>
+      <el-button type="primary" :loading="searchDialog.loading" @click="runSearch">搜索</el-button>
+      <el-button @click="resetSearch">重置</el-button>
+    </div>
+    <el-skeleton v-if="searchDialog.loading" :rows="6" animated />
+    <el-empty v-else-if="!searchDialog.rows.length" description="暂无结果" />
+    <el-table v-else :data="searchDialog.rows" border height="62vh" class="cc-table-full">
+      <el-table-column label="版本" width="160">
+        <template #default="s">
+          <div style="display:flex; gap:6px; align-items:center;">
+            <span>{{ s.row.version_no || s.row.version_id }}</span>
+            <el-tag size="small" :type="s.row.version_status === 'ARCHIVED' ? 'info' : 'success'">
+              {{ statusLabel(s.row.version_status) }}
+            </el-tag>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="env_name" label="环境" width="140" />
+      <el-table-column prop="type_name" label="类型" width="180" />
+      <el-table-column prop="key_value" label="Key" width="220" />
+      <el-table-column label="启用" width="90">
+        <template #default="s">
+          <el-tag size="small" :type="s.row.status === 'ENABLED' ? 'success' : 'info'">{{ s.row.status === 'ENABLED' ? '启用' : '未启用' }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="值">
+        <template #default="s">
+          <span class="mono-ellipsis">{{ compactValue(s.row) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="update_time" label="更新时间" width="180" />
+      <el-table-column label="操作" width="90">
+        <template #default="s">
+          <el-button link type="primary" @click="openSearchDetail(s.row)">查看</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <template #footer>
+      <el-button @click="searchDialog.visible=false">关闭</el-button>
+    </template>
+  </el-dialog>
+
+  <el-dialog v-model="searchDetail.visible" title="配置数据详情" width="80vw">
+    <div v-if="searchDetail.row" class="search-detail">
+      <div class="search-detail__meta">
+        <el-tag>{{ searchDetail.row.app_name || `App ${searchDetail.row.app_id || '—'}` }}</el-tag>
+        <el-tag>{{ searchDetail.row.env_name || '—' }}</el-tag>
+        <el-tag>{{ searchDetail.row.type_name || '—' }}</el-tag>
+        <el-tag type="info">Key: {{ searchDetail.row.key_value }}</el-tag>
+        <el-tag :type="searchDetail.row.status === 'ENABLED' ? 'success' : 'info'">
+          {{ searchDetail.row.status === 'ENABLED' ? '启用' : '未启用' }}
+        </el-tag>
+        <el-tag :type="searchDetail.row.version_status === 'ARCHIVED' ? 'info' : 'success'">
+          {{ (searchDetail.row.version_no || searchDetail.row.version_id) + ' ' + statusLabel(searchDetail.row.version_status) }}
+        </el-tag>
+      </div>
+      <el-input type="textarea" :rows="18" :model-value="jsonPretty(searchDetail.row.parsed || safeParse(searchDetail.row.data_json))" readonly />
+    </div>
+    <template #footer>
+      <el-button @click="searchDetail.visible=false">关闭</el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog v-model="versionPreview.visible" title="版本配置预览" width="80vw">
     <div class="version-preview">
       <div class="version-preview__toolbar">
@@ -544,6 +625,8 @@ const versionPreview = reactive({
   rows: []
 });
 const htmlPreview = reactive({ visible: false, loading: false, html: '', filename: '' });
+const searchDialog = reactive({ visible: false, loading: false, q: '', envId: null, groupId: null, typeId: null, rows: [] });
+const searchDetail = reactive({ visible: false, row: null });
 const importInput = ref(null);
 const selectedIds = ref([]);
 const inlineDrafts = reactive({});
@@ -569,6 +652,18 @@ const groupOptions = computed(() => {
   });
   return [...m.values()];
 });
+const searchGroupOptions = computed(() => {
+  const list = props.types.filter((t) => !state.appId || t.app_id === state.appId);
+  const m = new Map();
+  list.forEach((t) => {
+    if (!t.group_id) return;
+    if (!m.has(t.group_id)) m.set(t.group_id, { id: t.group_id, group_name: t.group_name || '未命名', group_code: t.group_code || t.group_id });
+  });
+  return [...m.values()];
+});
+const searchTypeOptions = computed(() =>
+  props.types.filter((t) => (!state.appId || t.app_id === state.appId) && (!searchDialog.groupId || t.group_id === searchDialog.groupId))
+);
 const typeOptions = computed(() =>
   props.types.filter((t) => (!state.appId || t.app_id === state.appId) && (!state.groupId || t.group_id === state.groupId))
 );
@@ -832,6 +927,13 @@ function guessBaseVersionId(targetId) {
 
 function jsonPretty(obj) {
   try { return JSON.stringify(obj ?? {}, null, 2); } catch { return String(obj ?? ''); }
+}
+
+function compactValue(row) {
+  const raw = row?.data_json ?? '';
+  const text = typeof raw === 'string' ? raw : String(raw ?? '');
+  if (text.length <= 180) return text;
+  return `${text.slice(0, 180)}…`;
 }
 
 function makeDiffKey(row) {
@@ -1407,6 +1509,45 @@ async function openHtmlPreview() {
   }
 }
 
+function openSearch() {
+  searchDialog.visible = true;
+  resetSearch();
+}
+
+function resetSearch() {
+  searchDialog.q = '';
+  searchDialog.envId = null;
+  searchDialog.groupId = null;
+  searchDialog.typeId = null;
+  searchDialog.rows = [];
+  searchDetail.visible = false;
+  searchDetail.row = null;
+}
+
+async function runSearch() {
+  if (!state.appId) return toastWarning('请先选择应用');
+  const q = String(searchDialog.q || '').trim();
+  if (!q) return toastWarning('请输入关键字');
+  try {
+    searchDialog.loading = true;
+    const params = { appId: String(state.appId), q, limit: '200' };
+    if (searchDialog.envId) params.envId = String(searchDialog.envId);
+    if (searchDialog.groupId) params.groupId = String(searchDialog.groupId);
+    if (searchDialog.typeId) params.typeId = String(searchDialog.typeId);
+    const list = await api.searchData(params);
+    searchDialog.rows = (list || []).map((r) => ({ ...r, parsed: safeParse(r.data_json) }));
+  } catch (e) {
+    toastError(e, '搜索失败');
+  } finally {
+    searchDialog.loading = false;
+  }
+}
+
+function openSearchDetail(row) {
+  searchDetail.row = row ? { ...row } : null;
+  searchDetail.visible = true;
+}
+
 function openHtmlPreviewNewWindow() {
   if (!htmlPreview.html) return;
   const blob = new Blob([htmlPreview.html], { type: 'text/html;charset=utf-8' });
@@ -1557,6 +1698,9 @@ loadRefs();
 .html-preview__meta { display:flex; gap:6px; flex-wrap:wrap; }
 .html-preview__actions { display:flex; gap:8px; flex-wrap:wrap; }
 .html-preview__frame { width: 100%; height: 78vh; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
+.search-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom: 10px; }
+.mono-ellipsis { display:block; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.search-detail__meta { display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 10px; }
 .meta { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
 .preview { display:flex; flex-direction:column; gap:12px; }
 .preview-header { display:flex; align-items:center; gap:10px; }

@@ -9,6 +9,7 @@ const { createDataRouter } = require('./data');
 const { createExportRouter } = require('./export');
 const { createConfigRouter } = require('./config');
 const { createAuditRouter } = require('./audit');
+const { createSearchRouter } = require('./search');
 
 function createApiRouter({ db }) {
   const router = express.Router();
@@ -22,6 +23,7 @@ function createApiRouter({ db }) {
   router.use(createExportRouter({ db }));
   router.use(createConfigRouter({ db }));
   router.use(createAuditRouter({ db }));
+  router.use(createSearchRouter({ db }));
   return router;
 }
 

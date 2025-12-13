@@ -63,6 +63,8 @@ export const api = {
   createFieldGlobal: (payload) => request(`/fields`, { method: 'POST', body: JSON.stringify(payload) }),
   updateField: (id, payload) => request(`/fields/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteField: (id) => request(`/fields/${id}`, { method: 'DELETE' }),
+  // search
+  searchData: (params = {}) => request(`/search/data?${new URLSearchParams(params)}`),
   // data
   listData: (versionId, typeId, envId) => request(`/versions/${versionId}/data?${new URLSearchParams({ typeId, envId })}`),
   listVersionDataAll: (versionId) => request(`/versions/${versionId}/data/all`),
