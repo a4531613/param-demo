@@ -20,6 +20,7 @@ function createExportRouter({ db }) {
       const appId = Number(req.query.appId);
       const versionId = Number(req.query.versionId);
       const envId = Number(req.query.envId);
+      const enabledOnly = String(req.query.enabledOnly || '') === '1' || String(req.query.enabledOnly || '').toLowerCase() === 'true';
       if (!appId) throw new HttpError(400, 'appId required');
       if (!versionId) throw new HttpError(400, 'versionId required');
       if (!envId) throw new HttpError(400, 'envId required');
@@ -61,9 +62,10 @@ function createExportRouter({ db }) {
            FROM config_data cd
            JOIN config_types t ON cd.type_id = t.id
            WHERE cd.version_id = ? AND cd.env_id = ? AND t.app_id = ?
+             AND (? = 0 OR cd.status = 'ENABLED')
            ORDER BY t.sort_order, t.id, cd.key_value`
         )
-        .all(versionRow.id, envRow.id, appRow.id);
+        .all(versionRow.id, envRow.id, appRow.id, enabledOnly ? 1 : 0);
       dataRows.forEach((r) => {
         if (!dataByTypeId.has(r.type_id)) dataByTypeId.set(r.type_id, []);
         dataByTypeId.get(r.type_id).push(r);

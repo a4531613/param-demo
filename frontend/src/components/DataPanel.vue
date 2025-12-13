@@ -35,7 +35,7 @@
           <el-button
             type="danger"
             @click="batchRemove"
-            :disabled="!capabilities.canWrite || !selectedIds.length || isArchivedVersion || selected.some((r) => r.status !== 'DISABLED')"
+            :disabled="!capabilities.canWrite || !selectedIds.length || isArchivedVersion || htmlPreview.visible || selected.some((r) => r.status !== 'DISABLED')"
           >批量删除</el-button>
           <el-dropdown trigger="click">
             <el-button>
@@ -138,7 +138,7 @@
                 <el-button size="small" @click="openPreview(row)">预览</el-button>
                 <el-button size="small" @click="openModal(row)" :disabled="!capabilities.canWrite || isArchivedVersion">跨环境</el-button>
                 <el-button size="small" type="primary" @click="saveInlineRow(row)" :disabled="!capabilities.canWrite || isArchivedVersion">保存</el-button>
-                <el-button size="small" type="danger" @click="remove(row)" :disabled="!capabilities.canWrite || isArchivedVersion">删除</el-button>
+                <el-button size="small" type="danger" @click="remove(row)" :disabled="!capabilities.canWrite || isArchivedVersion || htmlPreview.visible">删除</el-button>
               </div>
             </div>
           </template>

@@ -87,7 +87,7 @@ export const api = {
     return { blob, filename };
   },
   previewAllHtml: async (appId, versionId, envId) => {
-    const res = await fetch(`${apiBase}/export/html?${new URLSearchParams({ appId, versionId, envId })}`, { headers: buildHeaders({ 'Content-Type': null }) });
+    const res = await fetch(`${apiBase}/export/html?${new URLSearchParams({ appId, versionId, envId, enabledOnly: '1' })}`, { headers: buildHeaders({ 'Content-Type': null }) });
     if (!res.ok) throw new Error(await res.text());
     const cd = res.headers.get('content-disposition') || '';
     const m = /filename=\"?([^\";]+)\"?/i.exec(cd);
