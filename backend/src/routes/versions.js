@@ -112,7 +112,6 @@ function createVersionsRouter({ db }) {
       }
       const actor = getActor(req);
       const tx = db.transaction(() => {
-        db.prepare(`UPDATE config_versions SET status = 'ARCHIVED' WHERE app_id = ? AND status = 'RELEASED'`).run(version.app_id);
         db.prepare(`UPDATE config_versions SET status = 'RELEASED', release_user = ?, release_time = ? WHERE id = ?`).run(actor, nowIso(), id);
       });
       tx();
@@ -156,7 +155,6 @@ function createVersionsRouter({ db }) {
         if (!canTransitionStatus(version.status, targetStatus)) throw new HttpError(400, 'status transition not allowed');
         const tx = db.transaction(() => {
           if (targetStatus === 'RELEASED') {
-            db.prepare(`UPDATE config_versions SET status = 'ARCHIVED' WHERE app_id = ? AND status = 'RELEASED' AND id <> ?`).run(version.app_id, id);
             db.prepare(`UPDATE config_versions SET status = 'RELEASED', release_user = ?, release_time = ? WHERE id = ?`).run(actor, nowIso(), id);
           } else if (targetStatus === 'PENDING_RELEASE') {
             db.prepare(`UPDATE config_versions SET status = 'PENDING_RELEASE', release_user = NULL, release_time = NULL WHERE id = ?`).run(id);
@@ -166,6 +164,16 @@ function createVersionsRouter({ db }) {
         });
         tx();
         statusChanged = true;
+      }
+
+      const hasMetaUpdate =
+        body.versionNo !== undefined ||
+        body.description !== undefined ||
+        body.effectiveFrom !== undefined ||
+        body.effectiveTo !== undefined ||
+        body.enabled !== undefined;
+      if (hasMetaUpdate && version.status !== 'PENDING_RELEASE') {
+        throw new HttpError(400, 'only pending version editable');
       }
 
       const info = db
@@ -206,7 +214,7 @@ function createVersionsRouter({ db }) {
       const actor = getActor(req);
       const version = db.prepare(`SELECT status FROM config_versions WHERE id = ?`).get(id);
       if (!version) throw new HttpError(404, 'not found');
-      if (version.status === 'RELEASED') throw new HttpError(400, 'cannot delete released version');
+      if (version.status !== 'PENDING_RELEASE') throw new HttpError(400, 'only pending version deletable');
       const info = db.prepare(`DELETE FROM config_versions WHERE id = ?`).run(id);
       if (!info.changes) throw new HttpError(404, 'not found');
       audit(db, actor, 'DELETE_VERSION', 'ConfigVersion', id, {});
@@ -249,4 +257,3 @@ function createVersionsRouter({ db }) {
 }
 
 module.exports = { createVersionsRouter };
-

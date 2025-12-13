@@ -22,42 +22,17 @@
       <el-table-column label="应用" width="200">
         <template #default="s">{{ appLabel(s.row.app_id) }}</template>
       </el-table-column>
-      <el-table-column label="状态" min-width="320">
+      <el-table-column label="状态" min-width="360">
         <template #default="scope">
-          <el-steps
-            :active="stepIndex(scope.row.status)"
-            simple
-            finish-status="success"
-            class="cc-version-steps"
+          <el-radio-group
+            :model-value="scope.row.status"
+            size="small"
+            @change="(v) => onStatusToggle(scope.row, v)"
           >
-            <el-step>
-              <template #title>
-                <span
-                  class="cc-step-title"
-                  :class="{ 'is-clickable': canGo(scope.row.status, 'PENDING_RELEASE'), 'is-active': scope.row.status === 'PENDING_RELEASE' }"
-                  @click="onStepClick(scope.row, 'PENDING_RELEASE')"
-                >待发布</span>
-              </template>
-            </el-step>
-            <el-step>
-              <template #title>
-                <span
-                  class="cc-step-title"
-                  :class="{ 'is-clickable': canGo(scope.row.status, 'RELEASED'), 'is-active': scope.row.status === 'RELEASED' }"
-                  @click="onStepClick(scope.row, 'RELEASED')"
-                >已发布</span>
-              </template>
-            </el-step>
-            <el-step>
-              <template #title>
-                <span
-                  class="cc-step-title"
-                  :class="{ 'is-clickable': canGo(scope.row.status, 'ARCHIVED'), 'is-active': scope.row.status === 'ARCHIVED' }"
-                  @click="onStepClick(scope.row, 'ARCHIVED')"
-                >已归档</span>
-              </template>
-            </el-step>
-          </el-steps>
+            <el-radio-button value="PENDING_RELEASE" :disabled="!canGo(scope.row.status, 'PENDING_RELEASE') && scope.row.status !== 'PENDING_RELEASE'">待发布</el-radio-button>
+            <el-radio-button value="RELEASED" :disabled="!canGo(scope.row.status, 'RELEASED') && scope.row.status !== 'RELEASED'">已发布</el-radio-button>
+            <el-radio-button value="ARCHIVED" :disabled="!canGo(scope.row.status, 'ARCHIVED') && scope.row.status !== 'ARCHIVED'">已归档</el-radio-button>
+          </el-radio-group>
         </template>
       </el-table-column>
       <el-table-column prop="enabled" label="启用" width="80">
@@ -72,8 +47,8 @@
       <el-table-column prop="update_time" label="更新时间" width="180" />
       <el-table-column label="更多" width="160">
         <template #default="scope">
-          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite">编辑</el-button>
-          <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite || scope.row.status === 'RELEASED'">删除</el-button>
+          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite || scope.row.status !== 'PENDING_RELEASE'">编辑</el-button>
+          <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite || scope.row.status !== 'PENDING_RELEASE'">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -134,7 +109,8 @@ function canGo(current, target) {
   return false;
 }
 
-async function onStepClick(row, targetStatus) {
+async function onStatusToggle(row, targetStatus) {
+  if (!targetStatus || row.status === targetStatus) return;
   if (!canGo(row.status, targetStatus)) return;
   const from = statusLabel(row.status);
   const to = statusLabel(targetStatus);
@@ -247,10 +223,3 @@ onMounted(async () => {
 watch(() => filters.appId, loadVersions);
 watch(() => filters.status, loadVersions);
 </script>
-
-<style scoped>
-.cc-version-steps :deep(.el-steps--simple) { padding: 0; }
-.cc-step-title { user-select: none; }
-.cc-step-title.is-clickable { cursor: pointer; color: var(--el-color-primary); }
-.cc-step-title.is-active { font-weight: 600; }
-</style>
