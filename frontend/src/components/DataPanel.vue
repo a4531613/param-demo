@@ -735,7 +735,18 @@ function rebuildInlineDrafts() {
   rows.value.forEach((r) => {
     inlineDrafts[String(r.id)] = { status: r.status, data: normalizeDataByFields(r.parsed || {}), expanded: false };
   });
+  expandFirstVisibleRow();
   selectedIds.value = selectedIds.value.filter((id) => rows.value.some((r) => r.id === id));
+}
+
+function expandFirstVisibleRow() {
+  Object.values(inlineDrafts).forEach((d) => {
+    if (d) d.expanded = false;
+  });
+  const first = displayedRows.value[0];
+  if (first && inlineDrafts[String(first.id)]) {
+    inlineDrafts[String(first.id)].expanded = true;
+  }
 }
 
 function ensureInlineDraft(row) {
@@ -769,7 +780,7 @@ function addInlineDraft() {
     keyValue: '',
     status: 'ENABLED',
     data: normalizeDataByFields(defaultData()),
-    expanded: false
+    expanded: true
   });
 }
 
@@ -1501,6 +1512,13 @@ watch(
   () => {
     ensureDefaults();
     load();
+  }
+);
+
+watch(
+  () => showEnabledOnly.value,
+  () => {
+    expandFirstVisibleRow();
   }
 );
 
