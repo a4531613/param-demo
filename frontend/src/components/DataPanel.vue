@@ -193,6 +193,14 @@
               <el-tag size="small" :type="ef.versionStatus === 'ARCHIVED' ? 'info' : 'success'">
                 {{ statusLabel(ef.versionStatus) || '未发布' }}
               </el-tag>
+              <el-button
+                v-if="ef.envId !== state.envId"
+                link
+                size="small"
+                type="primary"
+                :disabled="!canOverwriteCurrentFromEnv(ef.envId)"
+                @click="overwriteCurrentFromEnv(ef.envId)"
+              >从该环境覆盖到当前</el-button>
             </div>
           </div>
           <el-form label-width="110px" class="env-card__form">
@@ -1048,6 +1056,34 @@ async function deleteAcrossEnvs() {
   await api.deleteDataByKey(state.versionId, state.typeId, modal.form.keyValue);
   modal.visible = false;
   await load();
+}
+
+function canOverwriteCurrentFromEnv(sourceEnvId) {
+  if (!capabilities.value.canWrite) return false;
+  if (!state.envId) return false;
+  if (!sourceEnvId || sourceEnvId === state.envId) return false;
+  const target = modal.envForms.find((ef) => ef.envId === state.envId);
+  if (!target || !target.versionId || target.disabled) return false;
+  const source = modal.envForms.find((ef) => ef.envId === sourceEnvId);
+  if (!source) return false;
+  return true;
+}
+
+async function overwriteCurrentFromEnv(sourceEnvId) {
+  if (!canOverwriteCurrentFromEnv(sourceEnvId)) return;
+  const target = modal.envForms.find((ef) => ef.envId === state.envId);
+  const source = modal.envForms.find((ef) => ef.envId === sourceEnvId);
+  if (!target || !source) return;
+  if (!source.hasRecord) return toastWarning('源环境暂无配置数据，无法覆盖');
+  try {
+    await confirmAction(`确认用“${source.envName}”覆盖当前环境“${target.envName}”的配置？`, '提示');
+    const copied = JSON.parse(JSON.stringify(source.data || {}));
+    target.data = normalizeDataByFields(copied);
+    target.status = source.status;
+    toastSuccess('已覆盖到当前环境');
+  } catch (e) {
+    toastError(e, '覆盖失败');
+  }
 }
 
 async function remove(row) {
