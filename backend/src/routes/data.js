@@ -258,11 +258,70 @@ function createDataRouter({ db }) {
       if (!typeRow) throw new HttpError(404, 'type not found');
       if (typeRow.app_id && version.app_id && typeRow.app_id !== version.app_id) throw new HttpError(400, 'type not belong to app');
 
+      const tx = db.transaction(() => {
+        // ensure the key exists across envs, then disable across all envs
+        ensureKeyExistsAcrossEnvs({
+          versionId,
+          appId: version.app_id ?? null,
+          typeId,
+          keyValue,
+          dataJson: {},
+          status: 'DISABLED',
+          actor,
+          nowVal
+        });
+
+        const info = db
+          .prepare(
+            `UPDATE config_data
+             SET status = 'DISABLED', update_user = ?, update_time = ?
+             WHERE version_id = ? AND type_id = ? AND key_value = ?`
+          )
+          .run(actor, nowVal, versionId, typeId, keyValue);
+        return info;
+      });
+
+      const info = tx();
+      audit(db, actor, 'DISABLE_DATA_BY_KEY', 'ConfigData', versionId, { typeId, keyValue, affected: info.changes, now: nowVal });
+      res.json({ ok: true, affected: info.changes });
+    })
+  );
+
+  // Permanent delete: only allowed when all env records of the key are DISABLED.
+  router.delete(
+    '/versions/:versionId/data/by-key/hard',
+    wrap((req, res) => {
+      requireRole(req, ['admin', 'appowner']);
+      const versionId = toInt(req.params.versionId, 'versionId');
+      const typeId = toInt(req.query.typeId, 'typeId');
+      const keyValue = String(req.query.keyValue || '').trim();
+      const actor = getActor(req);
+      const nowVal = nowIso();
+
+      if (!keyValue) throw new HttpError(400, 'keyValue required');
+
+      const version = db.prepare(`SELECT status, app_id FROM config_versions WHERE id = ?`).get(versionId);
+      if (!version) throw new HttpError(404, 'version not found');
+      if (version.status !== 'RELEASED') throw new HttpError(400, 'only released version editable');
+
+      const typeRow = db.prepare(`SELECT id, app_id FROM config_types WHERE id = ?`).get(typeId);
+      if (!typeRow) throw new HttpError(404, 'type not found');
+      if (typeRow.app_id && version.app_id && typeRow.app_id !== version.app_id) throw new HttpError(400, 'type not belong to app');
+
+      const notDisabled = db
+        .prepare(
+          `SELECT COUNT(*) AS c
+           FROM config_data
+           WHERE version_id = ? AND type_id = ? AND key_value = ? AND status <> 'DISABLED'`
+        )
+        .get(versionId, typeId, keyValue)?.c;
+      if (Number(notDisabled || 0) > 0) throw new HttpError(400, 'only disabled data deletable');
+
       const info = db
         .prepare(`DELETE FROM config_data WHERE version_id = ? AND type_id = ? AND key_value = ?`)
         .run(versionId, typeId, keyValue);
 
-      audit(db, actor, 'DELETE_DATA_BY_KEY', 'ConfigData', versionId, { typeId, keyValue, deleted: info.changes, now: nowVal });
+      audit(db, actor, 'PURGE_DATA_BY_KEY', 'ConfigData', versionId, { typeId, keyValue, deleted: info.changes, now: nowVal });
       res.json({ ok: true, deleted: info.changes });
     })
   );
@@ -274,10 +333,15 @@ function createDataRouter({ db }) {
       const id = toInt(req.params.id, 'id');
       const actor = getActor(req);
       const row = db
-        .prepare(`SELECT cd.id, v.status FROM config_data cd JOIN config_versions v ON cd.version_id = v.id WHERE cd.id = ?`)
+        .prepare(
+          `SELECT cd.id, cd.status AS data_status, v.status AS version_status
+           FROM config_data cd JOIN config_versions v ON cd.version_id = v.id
+           WHERE cd.id = ?`
+        )
         .get(id);
       if (!row) throw new HttpError(404, 'not found');
-      if (row.status !== 'RELEASED') throw new HttpError(400, 'only released version editable');
+      if (row.version_status !== 'RELEASED') throw new HttpError(400, 'only released version editable');
+      if (row.data_status !== 'DISABLED') throw new HttpError(400, 'only disabled data deletable');
       const info = db.prepare(`DELETE FROM config_data WHERE id = ?`).run(id);
       if (!info.changes) throw new HttpError(404, 'not found');
       audit(db, actor, 'DELETE_DATA', 'ConfigData', id, {});

@@ -98,6 +98,7 @@ export const api = {
   importData: (versionId, rows, typeId, envId) => request(`/versions/${versionId}/data/import`, { method: 'POST', body: JSON.stringify({ rows, typeId, envId }) }),
   deleteData: (id) => request(`/data/${id}`, { method: 'DELETE' }),
   deleteDataByKey: (versionId, typeId, keyValue) => request(`/versions/${versionId}/data/by-key?${new URLSearchParams({ typeId, keyValue })}`, { method: 'DELETE' }),
+  purgeDataByKey: (versionId, typeId, keyValue) => request(`/versions/${versionId}/data/by-key/hard?${new URLSearchParams({ typeId, keyValue })}`, { method: 'DELETE' }),
   // config fetch
   fetchConfig: (appCode, typeCode, key, env) => request(`/config/${appCode}/${typeCode}/${key}?env=${env || 'prod'}`),
   fetchConfigList: (appCode, typeCode, env) => request(`/config/${appCode}/${typeCode}?env=${env || 'prod'}`),

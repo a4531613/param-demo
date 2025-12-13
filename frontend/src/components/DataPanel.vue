@@ -32,7 +32,11 @@
 
         <div class="toolbar__actions">
           <el-button type="primary" @click="addInlineDraft()" :disabled="!capabilities.canWrite || isArchivedVersion || !state.envId || !state.typeId">新增配置</el-button>
-          <el-button type="danger" @click="batchRemove" :disabled="!capabilities.canWrite || !selectedIds.length || isArchivedVersion">批量删除</el-button>
+          <el-button
+            type="danger"
+            @click="batchRemove"
+            :disabled="!capabilities.canWrite || !selectedIds.length || isArchivedVersion || selected.some((r) => r.status !== 'DISABLED')"
+          >批量删除</el-button>
           <el-dropdown trigger="click">
             <el-button>
               更多
@@ -238,7 +242,7 @@
       </div>
     </div>
     <template #footer>
-      <el-button type="danger" v-if="modal.editId" @click="deleteAcrossEnvs">删除</el-button>
+      <el-button type="danger" v-if="modal.editId" @click="deleteAcrossEnvs">停用</el-button>
       <el-button @click="modal.visible=false">取消</el-button>
       <el-button type="primary" @click="save">保存</el-button>
     </template>
@@ -1052,7 +1056,7 @@ async function save() {
 async function deleteAcrossEnvs() {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   if (!modal.form.keyValue) return;
-  await confirmAction('确认删除该Key在所有环境的数据？', '提示');
+  await confirmAction('确认将该Key在所有环境设为未启用？', '提示');
   await api.deleteDataByKey(state.versionId, state.typeId, modal.form.keyValue);
   modal.visible = false;
   await load();
@@ -1088,7 +1092,7 @@ async function overwriteCurrentFromEnv(sourceEnvId) {
 
 async function remove(row) {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
-  await confirmAction('确认删除该记录？', '提示');
+  await confirmAction('确认将该记录设为未启用？', '提示');
   await api.deleteDataByKey(state.versionId, state.typeId, row.key_value);
   await load();
 }
@@ -1096,10 +1100,11 @@ async function remove(row) {
 async function batchRemove() {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
   if (!selected.value.length) return;
-  await confirmAction(`确认删除选中的 ${selected.value.length} 条记录？`, '提示');
+  if (selected.value.some((r) => r.status !== 'DISABLED')) return toastWarning('批量删除仅支持未启用的数据');
+  await confirmAction(`确认彻底删除选中的 ${selected.value.length} 条未启用记录？`, '提示');
   const keysToDelete = [...new Set(selected.value.map((r) => r.key_value))];
   for (const keyValue of keysToDelete) {
-    await api.deleteDataByKey(state.versionId, state.typeId, keyValue);
+    await api.purgeDataByKey(state.versionId, state.typeId, keyValue);
   }
   selectedIds.value = [];
   await load();
