@@ -86,7 +86,7 @@ function createDataRouter({ db }) {
       const stmt = db.prepare(`
         INSERT INTO config_data (type_id, version_id, env_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(version_id, env_id, key_value) DO UPDATE SET
+        ON CONFLICT(version_id, type_id, env_id, key_value) DO UPDATE SET
           data_json=excluded.data_json,
           status=excluded.status,
           update_user=excluded.update_user,
@@ -194,7 +194,7 @@ function createDataRouter({ db }) {
       const upsert = db.prepare(`
         INSERT INTO config_data (type_id, version_id, env_id, key_value, data_json, status, create_user, update_user, create_time, update_time)
         VALUES (@type_id, @version_id, @env_id, @key_value, @data_json, @status, @actor, @actor, @now, @now)
-        ON CONFLICT(version_id, env_id, key_value) DO UPDATE SET
+        ON CONFLICT(version_id, type_id, env_id, key_value) DO UPDATE SET
           data_json=excluded.data_json,
           status=excluded.status,
           update_user=excluded.update_user,

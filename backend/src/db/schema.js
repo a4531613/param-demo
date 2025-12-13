@@ -25,7 +25,11 @@ function ensureConfigDataEnv(db) {
       `);
     })();
   }
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_config_data_version_env_key ON config_data(version_id, env_id, key_value)`);
+  // Unique key should be version_id + type_id + env_id + key_value (key is not globally unique).
+  db.exec(`DROP INDEX IF EXISTS idx_config_data_version_env_key`);
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_config_data_version_type_env_key ON config_data(version_id, type_id, env_id, key_value)`
+  );
 }
 
 function ensureConfigFieldsFieldType(db) {
@@ -292,6 +296,7 @@ function initSchema(db) {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type_id INTEGER NOT NULL,
     version_id INTEGER NOT NULL,
+    env_id INTEGER,
     key_value TEXT NOT NULL,
     data_json TEXT NOT NULL,
     status TEXT DEFAULT 'ENABLED',
@@ -300,9 +305,9 @@ function initSchema(db) {
     update_user TEXT,
     update_time TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE,
-    FOREIGN KEY (version_id) REFERENCES config_versions(id) ON DELETE CASCADE,
-    UNIQUE(version_id, key_value)
+    FOREIGN KEY (version_id) REFERENCES config_versions(id) ON DELETE CASCADE
   );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_config_data_version_type_env_key ON config_data(version_id, type_id, env_id, key_value);
   CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     actor TEXT,
