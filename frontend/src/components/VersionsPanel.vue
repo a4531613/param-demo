@@ -80,6 +80,8 @@ import { api } from '../api';
 import { capabilities } from '../userContext';
 import { confirmAction, toastError, toastSuccess, toastWarning } from '../ui/feedback';
 
+const emit = defineEmits(['refreshVersions']);
+
 const apps = reactive([]);
 const versions = reactive([]);
 const filters = reactive({ appId: null, status: '' });
@@ -140,6 +142,7 @@ async function loadVersions() {
     if (filters.status) params.status = filters.status;
     const list = await api.listVersionsAll(params);
     versions.splice(0, versions.length, ...(list || []));
+    emit('refreshVersions');
   } catch (e) {
     toastError(e, '加载版本失败');
   }
