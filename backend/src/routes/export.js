@@ -44,7 +44,14 @@ function createExportRouter({ db }) {
 
       const fieldsByTypeId = new Map();
       types.forEach((t) => {
-        const fields = db.prepare(`SELECT field_code, field_name FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(t.id);
+        const fields = db
+          .prepare(
+            `SELECT field_code, field_name, field_type, data_type, enum_options
+             FROM config_fields
+             WHERE type_id = ?
+             ORDER BY sort_order, id`
+          )
+          .all(t.id);
         fieldsByTypeId.set(t.id, fields);
       });
       const dataByTypeId = new Map(types.map((t) => [t.id, []]));
@@ -70,6 +77,97 @@ function createExportRouter({ db }) {
       const maxCellLen = 96;
       const maxTipLen = 8000;
       const maxFieldLabelLen = 28;
+      const maxJsonPrettyLen = 1800;
+
+      function parseEnumOptions(text) {
+        if (!text) return [];
+        try {
+          const parsed = JSON.parse(text);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function normalizeArrayValue(v) {
+        if (Array.isArray(v)) return v;
+        if (typeof v === 'string') {
+          try {
+            const parsed = JSON.parse(v);
+            return Array.isArray(parsed) ? parsed : null;
+          } catch (e) {
+            return null;
+          }
+        }
+        return null;
+      }
+
+      function maskPassword(v) {
+        const text = String(v ?? '');
+        if (!text) return '';
+        const len = Math.min(Math.max(text.length, 6), 12);
+        return '•'.repeat(len);
+      }
+
+      function jsonPrettyShort(v) {
+        try {
+          const pretty = JSON.stringify(v ?? {}, null, 2);
+          return pretty.length > maxJsonPrettyLen ? `${pretty.slice(0, maxJsonPrettyLen)}…` : pretty;
+        } catch (e) {
+          return String(v ?? '');
+        }
+      }
+
+      function renderValueHtml(field, valueObj) {
+        const fieldType = field?.field_type || '';
+        const dataType = field?.data_type || '';
+        const enums = parseEnumOptions(field?.enum_options);
+        const raw = valueObj?.[field.field_code];
+
+        if (fieldType === 'MultiSelect' || fieldType === 'Checkbox') {
+          const arr = normalizeArrayValue(raw) || [];
+          if (!arr.length) return `<div class="value-box value-box--muted">-</div>`;
+          const items = arr
+            .map((x) => `<span class="chip">${escapeHtml(shortenText(toCellText(x), maxCellLen))}</span>`)
+            .join('');
+          return `<div class="chips">${items}</div>`;
+        }
+
+        if (fieldType === 'Select' || fieldType === 'Radio' || dataType === 'enum') {
+          const text = toCellText(raw);
+          if (!text) return `<div class="value-box value-box--muted">-</div>`;
+          const ok = enums.length ? enums.includes(text) : true;
+          return `<span class="pill ${ok ? 'pill--ok' : 'pill--warn'}" title="${escapeHtmlAttr(text)}">${escapeHtml(shortenText(text, maxCellLen))}</span>`;
+        }
+
+        if (fieldType === 'Password') {
+          const masked = maskPassword(raw);
+          return masked ? `<div class="value-box mono">${escapeHtml(masked)}</div>` : `<div class="value-box value-box--muted">-</div>`;
+        }
+
+        if (fieldType === 'Textarea') {
+          const text = toCellText(raw);
+          if (!text) return `<div class="value-box value-box--muted">-</div>`;
+          const tipText = shortenText(text, maxTipLen) + (text.length > maxTipLen ? '（已截断）' : '');
+          return `<div class="value-box value-box--multiline mono" title="${escapeHtmlAttr(tipText)}">${escapeHtml(tipText)}</div>`;
+        }
+
+        if (dataType === 'boolean') {
+          const v = raw === true || raw === 1 || raw === '1' || raw === 'true';
+          return `<span class="pill ${v ? 'pill--ok' : 'pill--muted'}">${v ? '是' : '否'}</span>`;
+        }
+
+        if (dataType === 'json' && raw && typeof raw === 'object') {
+          const pretty = jsonPrettyShort(raw);
+          return `<pre class="json-box mono">${escapeHtml(pretty)}</pre>`;
+        }
+
+        const text = toCellText(raw);
+        if (!text) return `<div class="value-box value-box--muted">-</div>`;
+        const short = shortenText(text, maxCellLen);
+        const tipText = shortenText(text, maxTipLen) + (text.length > maxTipLen ? '（已截断）' : '');
+        return `<div class="value-box mono" title="${escapeHtmlAttr(tipText)}">${escapeHtml(short)}</div>`;
+      }
 
       const html = [];
       html.push(`<!doctype html>`);
@@ -104,11 +202,19 @@ function createExportRouter({ db }) {
         .record__head { display:flex; align-items:center; justify-content:space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
         .record__key { font-weight: 650; font-size: 13px; min-width: 0; }
         .pill { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); flex: 0 0 auto; }
+        .pill--ok { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+        .pill--warn { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+        .pill--muted { background: var(--head); border-color: var(--border); color: var(--muted); }
         .form-grid { display:grid; grid-template-columns: 1fr; gap: 10px; padding-top: 10px; }
         .form-item { display:flex; flex-direction: column; gap: 4px; }
         .form-label { color: var(--muted); font-size: 11px; letter-spacing: 0.2px; }
         .form-value { font-size: 12px; min-width: 0; }
         .value-box { padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--head); }
+        .value-box--muted { color: var(--muted); }
+        .value-box--multiline { white-space: pre-wrap; word-break: break-word; }
+        .chips { display:flex; flex-wrap:wrap; gap:6px; }
+        .chip { display:inline-flex; align-items:center; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-size: 11px; color: var(--text); }
+        .json-box { margin:0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--head); white-space: pre-wrap; overflow:auto; max-height: 220px; font-size: 11px; line-height: 1.4; }
         .empty { color: var(--muted); font-size: 12px; padding: 10px 0 2px 0; }
         @media (max-width: 720px) { .meta { grid-template-columns: 1fr; } }
       </style>`);
@@ -167,11 +273,10 @@ function createExportRouter({ db }) {
             const labelFull = `${f.field_name || f.field_code} (${f.field_code})`;
             const labelShort = shortenText(f.field_name || f.field_code, maxFieldLabelLen);
             const raw = toCellText(r.obj?.[f.field_code]);
-            const short = shortenText(raw, maxCellLen);
             const tipText = shortenText(raw, maxTipLen) + (raw.length > maxTipLen ? '（已截断）' : '');
             html.push(`<div class="form-item">`);
             html.push(`<div class="form-label"><span class="cell" title="${escapeHtmlAttr(labelFull)}">${escapeHtml(labelShort)}</span></div>`);
-            html.push(`<div class="form-value mono"><div class="value-box" title="${escapeHtmlAttr(tipText)}">${escapeHtml(short)}</div></div>`);
+            html.push(`<div class="form-value">${renderValueHtml(f, r.obj)}</div>`);
             html.push(`</div>`);
           });
           html.push(`</div>`);
@@ -192,4 +297,3 @@ function createExportRouter({ db }) {
 }
 
 module.exports = { createExportRouter };
-
