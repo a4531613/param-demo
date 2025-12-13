@@ -4,6 +4,7 @@ const {
   initSchema,
   ensureConfigDataEnv,
   ensureConfigFieldsFieldType,
+  ensureConfigFieldsCommon,
   ensureConfigTypeGroups,
   ensureConfigTypesGroupId,
   seedDefaultTypeGroups,
@@ -20,6 +21,7 @@ function getDb() {
   initSchema(db);
   ensureConfigDataEnv(db);
   ensureConfigFieldsFieldType(db);
+  ensureConfigFieldsCommon(db);
   ensureConfigTypeGroups(db);
   ensureConfigTypesGroupId(db);
   seedDefaultTypeGroups(db);

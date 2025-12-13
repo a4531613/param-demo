@@ -39,6 +39,46 @@ function ensureConfigFieldsFieldType(db) {
   }
 }
 
+function ensureConfigFieldsCommon(db) {
+  const cols = db.prepare(`PRAGMA table_info(config_fields)`).all();
+  const typeCol = cols.find((c) => c.name === 'type_id');
+  if (typeCol && Number(typeCol.notnull) === 1) {
+    db.transaction(() => {
+      db.exec(`
+        ALTER TABLE config_fields RENAME TO config_fields_old;
+        CREATE TABLE IF NOT EXISTS config_fields (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type_id INTEGER,
+          field_code TEXT NOT NULL,
+          field_name TEXT NOT NULL,
+          field_type TEXT,
+          data_type TEXT NOT NULL,
+          max_length INTEGER,
+          required INTEGER DEFAULT 0,
+          default_value TEXT,
+          validate_rule TEXT,
+          enum_options TEXT,
+          unique_key_part INTEGER DEFAULT 0,
+          sort_order INTEGER DEFAULT 0,
+          enabled INTEGER DEFAULT 1,
+          create_user TEXT,
+          create_time TEXT DEFAULT (datetime('now')),
+          update_user TEXT,
+          update_time TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE
+        );
+        INSERT INTO config_fields (id, type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, create_time, update_user, update_time)
+        SELECT id, type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, create_time, update_user, update_time
+        FROM config_fields_old;
+        DROP TABLE config_fields_old;
+      `);
+    })();
+  }
+
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_config_fields_type_code ON config_fields(type_id, field_code) WHERE type_id IS NOT NULL`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_config_fields_common_code ON config_fields(field_code) WHERE type_id IS NULL`);
+}
+
 function ensureConfigTypeGroups(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS config_type_groups (
@@ -273,7 +313,7 @@ function initSchema(db) {
   );
   CREATE TABLE IF NOT EXISTS config_fields (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    type_id INTEGER NOT NULL,
+    type_id INTEGER,
     field_code TEXT NOT NULL,
     field_name TEXT NOT NULL,
     field_type TEXT,
@@ -292,6 +332,8 @@ function initSchema(db) {
     update_time TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (type_id) REFERENCES config_types(id) ON DELETE CASCADE
   );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_config_fields_type_code ON config_fields(type_id, field_code) WHERE type_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_config_fields_common_code ON config_fields(field_code) WHERE type_id IS NULL;
   CREATE TABLE IF NOT EXISTS config_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     type_id INTEGER NOT NULL,
@@ -325,6 +367,7 @@ module.exports = {
   initSchema,
   ensureConfigDataEnv,
   ensureConfigFieldsFieldType,
+  ensureConfigFieldsCommon,
   ensureConfigTypeGroups,
   ensureConfigTypesGroupId,
   seedDefaultTypeGroups,

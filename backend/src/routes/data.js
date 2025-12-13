@@ -128,7 +128,9 @@ function createDataRouter({ db }) {
       const version = db.prepare(`SELECT * FROM config_versions WHERE id = ?`).get(versionId);
       if (!version) throw new HttpError(404, 'version not found');
       if (!typeId) throw new HttpError(400, 'typeId required');
-      const fields = db.prepare(`SELECT field_code FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(typeId);
+      const fields = db
+        .prepare(`SELECT field_code FROM config_fields WHERE (type_id = ? OR type_id IS NULL) ORDER BY sort_order, id`)
+        .all(typeId);
       const headers = ['key_value', ...fields.map((f) => f.field_code)];
       const csv = `${headers.join(',')}\r\n`;
       res.setHeader('Content-Type', 'text/csv');
@@ -147,7 +149,9 @@ function createDataRouter({ db }) {
       if (!version) throw new HttpError(404, 'version not found');
       if (!typeId) throw new HttpError(400, 'typeId required');
       if (!envId) throw new HttpError(400, 'envId required');
-      const fields = db.prepare(`SELECT field_code FROM config_fields WHERE type_id = ? ORDER BY sort_order, id`).all(typeId);
+      const fields = db
+        .prepare(`SELECT field_code FROM config_fields WHERE (type_id = ? OR type_id IS NULL) ORDER BY sort_order, id`)
+        .all(typeId);
       const headers = ['key_value', ...fields.map((f) => f.field_code)];
       const rows = db
         .prepare(`SELECT key_value, data_json, status FROM config_data WHERE version_id = ? AND type_id = ? AND env_id = ? ORDER BY id`)
@@ -189,7 +193,7 @@ function createDataRouter({ db }) {
       if (env.app_id && version.app_id && env.app_id !== version.app_id) throw new HttpError(400, 'env not belong to app');
       if (!rows.length) throw new HttpError(400, 'no rows');
 
-      const fields = db.prepare(`SELECT field_code FROM config_fields WHERE type_id = ?`).all(typeId);
+      const fields = db.prepare(`SELECT field_code FROM config_fields WHERE (type_id = ? OR type_id IS NULL)`).all(typeId);
       const fieldSet = new Set(fields.map((f) => f.field_code));
       const upsert = db.prepare(`
         INSERT INTO config_data (type_id, version_id, env_id, key_value, data_json, status, create_user, update_user, create_time, update_time)

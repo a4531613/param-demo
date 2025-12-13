@@ -6,6 +6,10 @@
         <el-select v-model="filters.appId" placeholder="应用" class="cc-control--sm">
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
         </el-select>
+        <div class="cc-tag-group">
+          <span class="cc-tag-label">字段范围</span>
+          <el-check-tag :checked="filters.typeId === 'COMMON'" @click="filters.typeId = 'COMMON'">通用字段</el-check-tag>
+        </div>
         <div class="cc-tag-group" v-if="groupOptions.length">
           <span class="cc-tag-label">大类</span>
           <el-check-tag
@@ -40,7 +44,12 @@
           <span class="drag-handle">☰</span> {{ scope.row.sort_order ?? '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="field_name" label="字段名称" />
+      <el-table-column label="字段名称">
+        <template #default="s">
+          <span>{{ s.row.field_name }}</span>
+          <el-tag v-if="s.row.is_common" size="small" type="info" style="margin-left:6px;">通用</el-tag>
+        </template>
+      </el-table-column>
       <!-- 配置类型ID隐藏 -->
       <el-table-column label="字段类型" width="140">
         <template #default="s">{{ fieldTypeLabel(s.row) }}</template>
@@ -60,8 +69,18 @@
       <el-table-column prop="update_time" label="更新时间" width="180" />
       <el-table-column label="操作" width="160">
         <template #default="scope">
-          <el-button link type="primary" @click="openModal(scope.row)" :disabled="!capabilities.canWrite">编辑</el-button>
-          <el-button link type="danger" @click="remove(scope.row)" :disabled="!capabilities.canWrite">删除</el-button>
+          <el-button
+            link
+            type="primary"
+            @click="openModal(scope.row)"
+            :disabled="!capabilities.canWrite || (scope.row.is_common && filters.typeId !== 'COMMON')"
+          >编辑</el-button>
+          <el-button
+            link
+            type="danger"
+            @click="remove(scope.row)"
+            :disabled="!capabilities.canWrite || (scope.row.is_common && filters.typeId !== 'COMMON')"
+          >删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -74,9 +93,14 @@
           <el-option v-for="a in apps" :key="a.id" :label="`${a.app_name}`" :value="a.id" />
         </el-select>
       </el-form-item>
-      <el-form-item label="类型"><el-select v-model="modal.form.typeId" filterable :disabled="true">
-        <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name}`" :value="t.id" />
-      </el-select></el-form-item>
+      <el-form-item v-if="!modal.form.common" label="类型">
+        <el-select v-model="modal.form.typeId" filterable :disabled="true">
+          <el-option v-for="t in modalTypeOptions" :key="t.id" :label="`${t.type_name}`" :value="t.id" />
+        </el-select>
+      </el-form-item>
+      <el-form-item v-else label="类型">
+        <el-tag type="info">通用字段（所有配置类型自动包含）</el-tag>
+      </el-form-item>
       <el-form-item label="字段名称"><el-input v-model="modal.form.fieldName" /></el-form-item>
       <el-form-item label="字段类型">
         <el-select v-model="modal.form.fieldType" placeholder="请选择">
@@ -139,7 +163,7 @@ const filters = reactive({ appId: null, groupId: null, typeId: null, keyword: ''
 const modal = reactive({
   visible: false,
   editId: null,
-  form: { appId: null, typeId: null, fieldName: '', fieldType: 'Input', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
+  form: { appId: null, typeId: null, common: false, fieldName: '', fieldType: 'Input', dataType: 'string', maxLength: null, required: true, validateRule: '', enumOptions: '', enabled: true, description: '' }
 });
 
 function inferDataTypeByFieldType(fieldType) {
@@ -195,8 +219,10 @@ const rowsFiltered = computed(() => {
   const kw = filters.keyword.toLowerCase();
   return rows.filter((r) => {
     if (String(r.field_code || '').toLowerCase() === 'key') return false;
-    const okApp = !filters.appId || r.app_id === filters.appId;
-    const okType = !filters.typeId || r.type_id === filters.typeId;
+    const isCommon = !!r.is_common;
+    const okApp = !filters.appId || isCommon || r.app_id === filters.appId;
+    const okType =
+      !filters.typeId ? true : filters.typeId === 'COMMON' ? isCommon : isCommon || r.type_id === filters.typeId;
     const okKw = !kw || (r.field_name || '').toLowerCase().includes(kw);
     return okApp && okType && okKw;
   });
@@ -207,6 +233,7 @@ function ensureDefaults() {
   if (groupOptions.value.length && !groupOptions.value.find((g) => g.id === filters.groupId)) {
     filters.groupId = groupOptions.value[0]?.id || null;
   }
+  if (filters.typeId === 'COMMON') return;
   if (!typeOptions.value.find((t) => t.id === filters.typeId)) {
     filters.typeId = typeOptions.value[0]?.id || null;
   }
@@ -229,7 +256,8 @@ async function loadRefs() {
 async function loadFields() {
   const params = {};
   if (filters.appId) params.appId = filters.appId;
-  if (filters.typeId) params.typeId = filters.typeId;
+  if (filters.typeId && filters.typeId !== 'COMMON') params.typeId = filters.typeId;
+  if (filters.typeId === 'COMMON') params.commonOnly = '1';
   const list = await api.listFieldsAll(params);
   const filtered = (list || []).filter((r) => String(r.field_code || '').toLowerCase() !== 'key');
   rows.splice(0, rows.length, ...filtered.map((r, idx) => ({ ...r, sort_order: r.sort_order ?? idx })));
@@ -242,6 +270,7 @@ function openModal(row) {
     modal.form = {
       appId: row.app_id,
       typeId: row.type_id,
+      common: !!row.is_common,
       fieldName: row.field_name,
       fieldType: row.field_type || '',
       dataType: row.data_type,
@@ -256,7 +285,8 @@ function openModal(row) {
     modal.editId = null;
     modal.form = {
       appId: filters.appId || (apps[0] && apps[0].id) || null,
-      typeId: filters.typeId || (typeOptions.value[0] && typeOptions.value[0].id) || null,
+      typeId: filters.typeId === 'COMMON' ? null : (filters.typeId || (typeOptions.value[0] && typeOptions.value[0].id) || null),
+      common: filters.typeId === 'COMMON',
       fieldName: '',
       fieldType: 'Input',
       dataType: 'string',
@@ -274,7 +304,7 @@ function openModal(row) {
 
 async function save() {
   if (!capabilities.value.canWrite) return toastWarning('当前角色为只读，无法操作');
-  if (!modal.form.typeId || !modal.form.fieldName) return toastWarning('请填写必填项（类型/字段名称）');
+  if ((!modal.form.common && !modal.form.typeId) || !modal.form.fieldName) return toastWarning('请填写必填项（类型/字段名称）');
   const payload = { ...modal.form };
   if (!payload.fieldCode) delete payload.fieldCode;
   payload.fieldType = payload.fieldType || null;
@@ -369,6 +399,10 @@ watch(
 
 function ensureModalDefaults() {
   if (!modal.form.appId && apps.length) modal.form.appId = apps[0].id;
+  if (modal.form.common) {
+    modal.form.typeId = null;
+    return;
+  }
   if (!modalTypeOptions.value.find((t) => t.id === modal.form.typeId)) {
     modal.form.typeId = modalTypeOptions.value[0]?.id || null;
   }

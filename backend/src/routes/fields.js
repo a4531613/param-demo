@@ -19,7 +19,7 @@ function createFieldsRouter({ db }) {
     }
     // Auto-generate: stable internal key for data_json binding.
     let next = Number(db.prepare(`SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM config_fields`).get()?.next_id || 1);
-    const exists = db.prepare(`SELECT 1 FROM config_fields WHERE type_id = ? AND field_code = ? LIMIT 1`);
+    const exists = db.prepare(`SELECT 1 FROM config_fields WHERE type_id IS ? AND field_code = ? LIMIT 1`);
     while (true) {
       const code = `f${next}`;
       if (!exists.get(typeId, code) && !reservedFieldCodes.has(code.toLowerCase())) return code;
@@ -38,20 +38,36 @@ function createFieldsRouter({ db }) {
         const rows = db
           .prepare(
             `
-            SELECT cf.*, t.app_id, t.type_code
+            SELECT cf.*, ? AS app_id, NULL AS type_code, 1 AS is_common
+            FROM config_fields cf
+            WHERE cf.type_id IS NULL AND LOWER(cf.field_code) <> 'key'
+            UNION ALL
+            SELECT cf.*, t.app_id, t.type_code, 0 AS is_common
             FROM config_fields cf
             JOIN config_types t ON cf.type_id = t.id
             WHERE t.app_id IS ? AND LOWER(cf.field_code) <> 'key'
-            ORDER BY cf.sort_order, cf.id
+            ORDER BY sort_order, id
           `
           )
-          .all(version.app_id ?? null);
+          .all(version.app_id ?? null, version.app_id ?? null);
         return res.json(rows);
       }
 
       const typeId = idParam;
       const rows = db
-        .prepare(`SELECT * FROM config_fields WHERE type_id = ? AND LOWER(field_code) <> 'key' ORDER BY sort_order, id`)
+        .prepare(
+          `
+          SELECT cf.*, NULL AS app_id, NULL AS type_code, 1 AS is_common
+          FROM config_fields cf
+          WHERE cf.type_id IS NULL AND LOWER(cf.field_code) <> 'key'
+          UNION ALL
+          SELECT cf.*, t.app_id, t.type_code, 0 AS is_common
+          FROM config_fields cf
+          JOIN config_types t ON cf.type_id = t.id
+          WHERE cf.type_id = ? AND LOWER(cf.field_code) <> 'key'
+          ORDER BY sort_order, id
+        `
+        )
         .all(typeId);
       return res.json(rows);
     })
@@ -108,17 +124,34 @@ function createFieldsRouter({ db }) {
     '/fields',
     wrap((req, res) => {
       const { appId, typeId } = req.query;
+      const commonOnly = String(req.query.commonOnly ?? '0') === '1';
+      const includeCommon = String(req.query.includeCommon ?? '1') !== '0';
       let sql = `
-        SELECT cf.*, t.app_id, t.type_code
+        SELECT cf.*, t.app_id, t.type_code, (cf.type_id IS NULL) AS is_common
         FROM config_fields cf
-        JOIN config_types t ON cf.type_id = t.id
+        LEFT JOIN config_types t ON cf.type_id = t.id
         WHERE 1=1 AND LOWER(cf.field_code) <> 'key'
       `;
       const params = [];
-      if (appId) { sql += ` AND t.app_id = ?`; params.push(appId); }
-      if (typeId) { sql += ` AND cf.type_id = ?`; params.push(typeId); }
+      if (commonOnly) {
+        sql += ` AND cf.type_id IS NULL`;
+      }
+      if (appId) {
+        sql += includeCommon ? ` AND (t.app_id = ? OR cf.type_id IS NULL)` : ` AND t.app_id = ?`;
+        params.push(appId);
+      } else if (!includeCommon) {
+        sql += ` AND cf.type_id IS NOT NULL`;
+      }
+      if (!commonOnly && typeId) {
+        sql += includeCommon ? ` AND (cf.type_id = ? OR cf.type_id IS NULL)` : ` AND cf.type_id = ?`;
+        params.push(typeId);
+      }
       sql += ` ORDER BY cf.sort_order, cf.id DESC`;
-      res.json(db.prepare(sql).all(params));
+      const rows = db.prepare(sql).all(params);
+      if (appId && includeCommon) {
+        return res.json(rows.map((r) => (r.is_common ? { ...r, app_id: Number(appId) } : r)));
+      }
+      res.json(rows);
     })
   );
 
@@ -128,8 +161,9 @@ function createFieldsRouter({ db }) {
       requireRole(req, ['admin', 'appowner']);
       const body = req.body || {};
       const actor = getActor(req);
-      const typeId = Number(body.typeId);
-      if (!typeId) throw new HttpError(400, 'typeId required');
+      const isCommon = body.common === true;
+      const typeId = isCommon ? null : Number(body.typeId);
+      if (!isCommon && !typeId) throw new HttpError(400, 'typeId required');
       const stmt = db.prepare(
         `
         INSERT INTO config_fields (type_id, field_code, field_name, field_type, data_type, max_length, required, default_value, validate_rule, enum_options, unique_key_part, sort_order, enabled, create_user, update_user, update_time)
@@ -224,9 +258,9 @@ function createFieldsRouter({ db }) {
       const field = db.prepare(`SELECT id, type_id, field_code FROM config_fields WHERE id = ?`).get(id);
       if (!field) throw new HttpError(404, 'not found');
 
-      const selectData = db.prepare(
-        `SELECT id, data_json FROM config_data WHERE type_id = ? AND data_json LIKE ?`
-      );
+      const selectData = field.type_id
+        ? db.prepare(`SELECT id, data_json FROM config_data WHERE type_id = ? AND data_json LIKE ?`)
+        : db.prepare(`SELECT id, data_json FROM config_data WHERE data_json LIKE ?`);
       const updateData = db.prepare(
         `UPDATE config_data SET data_json = @data_json, update_user = @actor, update_time = @now WHERE id = @id`
       );
@@ -234,7 +268,7 @@ function createFieldsRouter({ db }) {
 
       const tx = db.transaction(() => {
         const like = `%\"${String(field.field_code)}\"%`;
-        const dataRows = selectData.all(field.type_id, like);
+        const dataRows = field.type_id ? selectData.all(field.type_id, like) : selectData.all(like);
         let affected = 0;
         dataRows.forEach((r) => {
           const obj = safeParseJson(r.data_json, null);
@@ -250,7 +284,12 @@ function createFieldsRouter({ db }) {
       });
 
       const affected = tx();
-      audit(db, actor, 'DELETE_FIELD', 'ConfigField', id, { fieldCode: field.field_code, typeId: field.type_id, affectedConfigRows: affected });
+      audit(db, actor, 'DELETE_FIELD', 'ConfigField', id, {
+        fieldCode: field.field_code,
+        typeId: field.type_id,
+        isCommon: field.type_id == null,
+        affectedConfigRows: affected
+      });
       res.json({ id, affectedConfigRows: affected });
     })
   );

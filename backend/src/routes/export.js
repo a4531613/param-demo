@@ -49,7 +49,7 @@ function createExportRouter({ db }) {
           .prepare(
             `SELECT field_code, field_name, field_type, data_type, enum_options
              FROM config_fields
-             WHERE type_id = ?
+             WHERE type_id = ? OR type_id IS NULL
              ORDER BY sort_order, id`
           )
           .all(t.id);

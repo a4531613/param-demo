@@ -233,11 +233,15 @@ function createVersionsRouter({ db }) {
       if ((verA.app_id ?? null) !== (verB.app_id ?? null)) throw new HttpError(400, 'versions must belong to same app');
 
       const fieldsSql = `
-        SELECT cf.type_id, cf.field_code, cf.data_type, cf.required, cf.max_length, cf.validate_rule, cf.enum_options
+        SELECT cf.type_id, cf.field_code, cf.data_type, cf.required, cf.max_length, cf.validate_rule, cf.enum_options, cf.sort_order, cf.id
+        FROM config_fields cf
+        WHERE cf.type_id IS NULL
+        UNION ALL
+        SELECT cf.type_id, cf.field_code, cf.data_type, cf.required, cf.max_length, cf.validate_rule, cf.enum_options, cf.sort_order, cf.id
         FROM config_fields cf
         JOIN config_types t ON cf.type_id = t.id
         WHERE t.app_id IS ?
-        ORDER BY cf.type_id, cf.sort_order, cf.id
+        ORDER BY type_id, sort_order, id
       `;
       const fieldsA = db.prepare(fieldsSql).all(verA.app_id ?? null).map((r) => ({ ...r, diff_key: `${r.type_id ?? ''}|${r.field_code}` }));
       const fieldsB = db.prepare(fieldsSql).all(verB.app_id ?? null).map((r) => ({ ...r, diff_key: `${r.type_id ?? ''}|${r.field_code}` }));
